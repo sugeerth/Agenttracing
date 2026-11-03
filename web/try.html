@@ -229,7 +229,7 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
     "    rel = reliability(data)",
     "    keep = ('tasks', 'runs_total', 'runs_used', 'successes', 'mean_success_rate', 'max_k', 'pass_hat_k', 'pass_at_k',",
     "            'outcome_consistency', 'trajectory_consistency', 'resource_consistency', 'icc', 'runs_advisory', 'unbroken_records',",
-    "            'run_plan')",
+    "            'run_plan', 'rerun_flips')",
     "    per_agent = {ag: {k: (rel['per_agent'].get(ag) or {}).get(k) for k in keep} for ag in agents}",
     "    for ag in agents:",
     "        rows = (rel['per_agent'].get(ag) or {}).get('per_task') or []",
@@ -386,7 +386,8 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
           el("span", { class: "chip" }, [el("span", { class: "r", text: "✗" }), document.createTextNode(v.failing + " always fail")])
         ]),
         a.unbroken_records && a.unbroken_records.passed_every_run ? el("p", { class: "unbroken", text: a.unbroken_records.says + "." }) : null,
-        a.run_plan && a.run_plan.open ? el("p", { class: "unbroken plan", text: a.run_plan.says + "." }) : null
+        a.run_plan && a.run_plan.open ? el("p", { class: "unbroken plan", text: a.run_plan.says + "." }) : null,
+        a.rerun_flips && a.rerun_flips.expected_flips !== null ? el("p", { class: "unbroken flips", text: a.rerun_flips.says.charAt(0).toUpperCase() + a.rerun_flips.says.slice(1) + "." }) : null
       ]);
       host.appendChild(tile);
     });

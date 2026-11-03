@@ -83,8 +83,8 @@ from typing import Optional, Sequence
 
 from .stability import _cv, _levenshtein
 from ._stats import percentile_interval
-from .statistics import (BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, exact_interval, fail_rate_at_most, pass_at_k,
-                         runs_to_rule_out, wilson_interval)
+from .statistics import (BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, central_range, exact_interval, fail_rate_at_most,
+                         pass_at_k, poisson_binomial, runs_to_rule_out, wilson_interval)
 from .trace import HARNESS_TERMINATIONS, Trajectory
 from . import sections as _sections
 
@@ -486,6 +486,64 @@ def run_plan(per_task: list, target: float = PLAN_TARGET, budget: Optional[int] 
     return out
 
 
+#: how much of a rerun's flip count the range holds
+FLIP_RANGE = 0.90
+#: the fewest runs at the thinnest task for which the range is given. Measured on synthetic suites (10 to 100
+#: tasks; settled, spread-out and reliable task mixes): from 10 runs it held 89-97% of fresh reruns, at 8 as
+#: little as 87%, at 3 about 73%, at 2 about 20%, because a rate read from a few runs is taken as known
+FLIP_RANGE_MIN_RUNS = 10
+
+
+def rerun_flips(per_task: list, coverage: float = FLIP_RANGE) -> dict:
+    """If the whole suite ran once more, one run a task, with nothing changed: how many tasks would come out
+    differently from a run before it. For one task the chance is that two of its runs disagree,
+    2p(1 - p); its unbiased estimate from c passes in n runs is the share of pairs of its runs that disagree,
+    2c(n - c) / (n(n - 1)). The flips over the suite are then a sum of independent yes-or-no events, so their
+    count has an exact (Poisson-binomial) distribution, and the range holds ``coverage`` of it.
+
+    A gap between two single runs of the suite that sits inside the range is what rerunning alone produces.
+    The expected count is unbiased at any number of runs; the range treats each task's estimate as its true
+    chance, so it is given only from :data:`FLIP_RANGE_MIN_RUNS` runs at the thinnest task. A task whose runs
+    never disagreed counts 0, though a few runs leave room for a lot (see ``unbroken_records``). Tasks with
+    fewer than 2 runs give no estimate and are left out, and counted. Counts only; nothing here decides."""
+    chances, rows, skipped, thinnest = [], [], 0, None
+    for r in per_task:
+        n, c = r.get("runs") or 0, r.get("successes") or 0
+        if n < 2:
+            skipped += 1
+            continue
+        q = 2 * c * (n - c) / (n * (n - 1))
+        chances.append(q)
+        thinnest = n if thinnest is None else min(thinnest, n)
+        if q:
+            rows.append({"task": r["task"], "runs": n, "successes": c, "flip_chance": round(q, 4)})
+    out = {"tasks": len(chances), "tasks_without_two_runs": skipped, "coverage": coverage, "fewest_runs": thinnest,
+           "tasks_that_can_flip": len(rows), "per_task": sorted(rows, key=lambda x: (-x["flip_chance"], x["task"])),
+           "basis": "per task, the share of pairs of its runs that disagree (unbiased for 2p(1-p)); over tasks, "
+                    "the exact distribution of a sum of independent chances"}
+    if not chances:
+        out.update(expected_flips=None, expected_share=None, range=None,
+                   range_reason="no task has 2 or more runs",
+                   says="no task has 2 or more runs, so a rerun's flips cannot be estimated")
+        return out
+    expected = sum(chances)
+    band = (central_range(poisson_binomial(chances), coverage) if thinnest >= FLIP_RANGE_MIN_RUNS else None)
+    out.update(expected_flips=round(expected, 2), expected_share=round(expected / len(chances), 4), range=band,
+               range_reason=None if band else
+               f"the thinnest task has {thinnest} runs; the range is given from {FLIP_RANGE_MIN_RUNS}, below which "
+               f"it held too few reruns in simulation")
+    if not rows:
+        out["says"] = (f"no task has both passed and failed, so a rerun of the {len(chances)} task(s) is estimated "
+                       f"to change none; with {thinnest} run(s) at the thinnest task, that is a floor")
+        return out
+    out["says"] = (f"run the suite once more with nothing changed and about {expected:.1f} of {len(chances)} "
+                   f"task(s) would come out differently"
+                   + (f" ({coverage:.0%} range {band[0]} to {band[1]})" if band else
+                      f" (no range: {thinnest} run(s) at the thinnest task, {FLIP_RANGE_MIN_RUNS} needed)")
+                   + f"; {len(rows)} task(s) have both passed and failed")
+    return out
+
+
 def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values)
 
@@ -756,6 +814,7 @@ def _agent_reliability(name: str,
         "runs_advisory": advisory,
         "unbroken_records": unbroken_records(per_task),
         "run_plan": run_plan(per_task),
+        "rerun_flips": rerun_flips(per_task),
         "per_task": per_task,
     }
     result["narrative"] = _agent_narrative(result)

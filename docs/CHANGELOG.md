@@ -5,6 +5,39 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## How many verdicts a rerun would change
+
+`reliability` now carries `rerun_flips` for each agent: if the whole
+suite ran once more, one run a task, with nothing changed, how many tasks
+would come out differently.
+- Per task, the share of its run pairs that disagree, which is unbiased
+  for 2p(1 − p) at any run count (`flip_chance`). Their sum is
+  `expected_flips`.
+- `range`: the 90% range of the count, from its exact distribution
+  (`statistics.poisson_binomial`, `central_range`). Given only from 10
+  runs at the thinnest task (`FLIP_RANGE_MIN_RUNS`), with
+  `range_reason` otherwise.
+- The dashboard prints it in each agent's tile.
+
+Measured (synthetic, labelled, seeded; 10 to 100 tasks; three mixes of
+task rates):
+- The expected count is unbiased. Its mean error was within ±0.06 flips
+  at every setting.
+- The 90% range held 89–97% of fresh reruns from 10 runs a task, but as
+  little as 87% at 8, about 73% at 3 and 13–20% at 2. Hence the 10-run
+  gate.
+- Two ranges were tried and dropped:
+  - A Jeffreys-prior predictive range held 80–93% on most mixes, but
+    53–59% at 2–3 runs when every task was fairly reliable.
+  - A prior-free range from each task's exact interval always held, but
+    spanned 0 to 19 of 30 tasks at any run count, so it says nothing.
+
+Recorded:
+- The shipped suites have 2 or 3 runs a task, so they get the count but
+  no range. Harness v0: 0.5 of 6; v1: 0 of 6.
+- On the A/A suite (one agent under two names), 0 flips were predicted,
+  and 0 of the 24 cross-name run pairs disagree.
+
 ## Runs still to make, per task
 
 `reliability` now carries `run_plan` for each agent: for every task, the

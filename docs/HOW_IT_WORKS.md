@@ -120,6 +120,15 @@ in all, so 26 more after 3. Given a per-task `budget`, a task whose 29 is
 above it is marked as one more runs can only break, never clear. It
 counts runs; it does not pick or stop them.
 
+`rerun_flips` answers the question a diff of two suite runs raises: how
+many task verdicts would change on a rerun with nothing changed? For one
+task the chance is 2p(1 − p). Its unbiased estimate is the share of the
+task's run pairs that disagree, 2c(n − c) / (n(n − 1)). Summed over
+tasks, that gives the expected count. The count's exact distribution is
+a Poisson-binomial, and its 90% range is given only from 10 runs at the
+thinnest task. Below that, the range treats a rate read from a few runs
+as known and falls short: about 73% at 3 runs, 20% at 2, in simulation.
+
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)

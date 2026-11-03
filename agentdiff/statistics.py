@@ -111,6 +111,34 @@ def runs_to_rule_out(rate: float, coverage: float = CONFIDENCE) -> Optional[int]
     return math.ceil(math.log(1 - coverage) / math.log(1 - rate) - 1e-12)
 
 
+def poisson_binomial(probabilities: Sequence[float]) -> list:
+    """The exact distribution of how many of several independent events happen, each with its own chance:
+    entry j is P(exactly j). Built one event at a time, so it is exact for any mix of chances."""
+    dist = [1.0]
+    for q in probabilities:
+        nxt = [0.0] * (len(dist) + 1)
+        for j, mass in enumerate(dist):
+            nxt[j] += mass * (1 - q)
+            nxt[j + 1] += mass * q
+        dist = nxt
+    return dist
+
+
+def central_range(dist: Sequence[float], coverage: float = 0.90) -> list:
+    """The narrowest-tailed integer range [lo, hi] of a count's distribution that leaves at most
+    (1 - coverage)/2 of the mass below lo and at most that above hi."""
+    tail = (1 - coverage) / 2
+    below, lo = 0.0, 0
+    while lo < len(dist) - 1 and below + dist[lo] <= tail + 1e-12:
+        below += dist[lo]
+        lo += 1
+    above, hi = 0.0, len(dist) - 1
+    while hi > lo and above + dist[hi] <= tail + 1e-12:
+        above += dist[hi]
+        hi -= 1
+    return [lo, hi]
+
+
 def binomial_tail(k: int, n: int, p: float) -> float:
     """P(X >= k) for X ~ Binomial(n, p), exactly, via math.comb.
 

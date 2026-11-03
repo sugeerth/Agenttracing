@@ -4,6 +4,54 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-03
+
+**How it was read.** Through search-engine extracts. Two pages
+(layerlens.ai, tldr.takara.ai) are outside this session's network
+allowance.
+
+**Read:**
+- A rerun report (LayerLens, *The test your agent never took*): two
+  identical runs of a suite, 53 different verdicts, cause not yet
+  separated. The two extracts disagree on the suite: SWE-bench Verified
+  (500 tasks, so 10.6%) or a 507-task workflow benchmark.
+- *Deployment Decision Reliability* (arXiv 2608.11323). A four-facet
+  generalizability-theory decomposition over three agent-trace
+  benchmarks. The agent main effect is under 3% of variance, and
+  agent × task is 7–23%.
+- *EvoHarnessBench*, *Evo-Harness* (arXiv 2608.15071), *Harness Benefit*
+  (arXiv 2605.30621), *TraceElephant* (ACL 2026, arXiv 2604.22708),
+  *FALAT* (arXiv 2606.00765), *SWE-Future* (arXiv 2606.18733), and
+  reports of agents reading a gold patch from git history
+  (Superconductor).
+
+**Taken: how many verdicts a rerun would change.** Seeing N tasks change
+between two runs of a suite raises one question: is N more than
+rerunning alone produces? The rerun report counts flips but has no
+expectation to set them against. From repeated runs, AgentDiff can give
+one.
+- Built: `reliability.rerun_flips` and its exact Poisson-binomial range,
+  and a line on the dashboard.
+- Measured: the expected count is unbiased. Its range, though, holds
+  only from about 10 runs a task: 73% at 3, 13–20% at 2. So the range
+  is withheld below 10 runs, and the reason is printed.
+- Two other ranges were tried and dropped (see the changelog): a
+  Jeffreys prior fails on reliable suites, and a prior-free bound is too
+  wide to say anything.
+
+**Not taken, and why:**
+- **The generalizability-theory decomposition.** `icc` already splits
+  between-task from within-task variance. A four-facet design needs
+  facets (judge, environment, prompt) that these traces do not record.
+- **Git-history leakage.** Already handled: `--from-git` workspaces
+  carry no `.git` (2026-10-16, second run).
+- **Harness Benefit, Evo-Harness.** Both need a second model to write
+  harness updates, and many more real runs than one run's budget.
+- **TraceElephant, FALAT.** Attribution from full environment state, or
+  from dependency search guided by a model. The first needs
+  reproducible environments these traces lack. The second lets a model
+  pick the step.
+
 ## 2026-11-02
 
 **How it was read.** Through search-engine extracts; only abstracts were
