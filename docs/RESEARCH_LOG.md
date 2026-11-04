@@ -4,6 +4,57 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-04
+
+**How it was read.** Through search-engine extracts.
+
+**Read:**
+- *AgentAssay* (arXiv 2603.02601) and the tools it names. agentrial
+  runs agents several times, uses Wilson intervals and Fisher's exact
+  test on pass rates, Mann–Whitney U on cost and latency, and CUSUM for
+  drift. agent-regress-cli does Mann–Whitney, bootstrap intervals and
+  Cohen's d over about 50 runs a side.
+- *Ratchet* (arXiv 2605.22148). A self-evolving skill library kept in
+  check by outcome-driven retirement, a cap on active skills, and a
+  no-skill control, which drifted +0.002.
+- *SkillsVote* (arXiv 2605.18401) and *SkillHone* (arXiv 2606.08671).
+  Skill updates gated on attributed evidence, and a recorded history of
+  diagnoses and revisions.
+- *TrajAD* (arXiv 2602.06443). A trained verifier that finds where a
+  trajectory went wrong.
+
+**Taken: tokens, time and steps per run, compared with a test that
+holds.** AgentDiff compared cost per success between two agents, but
+not the resources a run uses. The tools above compare them by pooling
+every run into one Mann–Whitney test. Measuring that first showed it is
+the wrong unit: task sizes swamp the difference. On 6 tasks it found a
+real 25% gain at most 8% of the time.
+- Built: `efficiency.resource_ratio_over_runs` and `resources_per_run`
+  (one number per task, a geometric-mean ratio with a t interval, and
+  `statistics.sign_flip_p`, an exact test over tasks).
+- Measured on null data: the sign-flip test held at 2.4–6.1%. The
+  jackknife the cost ratio uses ran to 7–12%, and permuting labels
+  within a task to 25% once runs share a batch. Real runs: the kept
+  harness change used 1.33× the tokens, not shown (p 0.16).
+- A finding for a later run: the cost ratio's jackknife runs over its
+  level on these null suites. It held near 5% on the real A/A suite's
+  cost (3.2% and 5.2%), so it is noted, not changed today.
+
+**Not taken, and why:**
+- **CUSUM drift over a series of runs** (agentrial). AgentDiff keeps no
+  dated series of suite runs, and an evolution has two or three
+  generations. That is too few to watch for drift.
+- **Fisher's exact test on pooled pass rates.** It treats each run as
+  independent, which a task's runs are not. `paired_inference` already
+  pairs by task.
+- **A cap on active instructions, and retirement** (Ratchet). Retirement
+  is `--prune` (2026-10-18). A cap with no measured failure from too
+  many instructions would be a rule without evidence; the recorded
+  evolutions end with at most two.
+- **Attributing outcomes to skills** (SkillsVote), and **trained
+  verifiers** (TrajAD). A model would decide the attribution or the
+  step.
+
 ## 2026-11-03
 
 **How it was read.** Through search-engine extracts. Two pages

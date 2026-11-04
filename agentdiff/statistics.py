@@ -139,6 +139,36 @@ def central_range(dist: Sequence[float], coverage: float = 0.90) -> list:
     return [lo, hi]
 
 
+#: above this many values the sign-flip test is drawn at random (seeded) instead of enumerated
+SIGN_FLIP_EXACT_MAX = 16
+SIGN_FLIP_DRAWS = 20000
+
+
+def sign_flip_p(values: Sequence[float], seed: int = BOOTSTRAP_SEED) -> Optional[float]:
+    """Two-sided p of the sign-flip test that ``values`` are centred on 0: the share of the 2^n ways of
+    flipping their signs whose sum is at least as far from 0 as the observed sum. It needs only that each
+    value is as likely to be positive as negative under the null, so it holds for any spread and any number
+    of values, and never runs over its level; with few values it cannot go low (6 values: no p below 1/32).
+    Exact up to :data:`SIGN_FLIP_EXACT_MAX` values; past that, a seeded draw of :data:`SIGN_FLIP_DRAWS`
+    flips, counted as (1 + hits) / (1 + draws). None for no values."""
+    vals = [float(v) for v in values]
+    n = len(vals)
+    if not n:
+        return None
+    observed = abs(sum(vals)) - 1e-12 * (1 + sum(abs(v) for v in vals))
+    if n <= SIGN_FLIP_EXACT_MAX:
+        hits = 0
+        for mask in range(1 << n):
+            total = 0.0
+            for i, v in enumerate(vals):
+                total += -v if mask >> i & 1 else v
+            hits += abs(total) >= observed
+        return hits / (1 << n)
+    rng = random.Random(seed)
+    hits = sum(abs(sum(v if rng.random() < 0.5 else -v for v in vals)) >= observed for _ in range(SIGN_FLIP_DRAWS))
+    return (1 + hits) / (1 + SIGN_FLIP_DRAWS)
+
+
 def binomial_tail(k: int, n: int, p: float) -> float:
     """P(X >= k) for X ~ Binomial(n, p), exactly, via math.comb.
 

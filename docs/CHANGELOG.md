@@ -5,6 +5,50 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Tokens, time and steps per run, with a test that holds
+
+`efficiency.resource_ratio_over_runs` compares how much of a resource B
+uses per run against A, over every run of every task. `resources_per_run`
+does tokens, seconds and steps. It is the `resources_per_run` aggregate
+section, after `cost_per_success_runs`, and `agentdiff runs` prints a
+line for each.
+- Each task gives one number, the log of B's mean per run over A's. A
+  task counts once however many runs it has. Runs of one agent on one
+  task, which share the task and often a batch, are never treated as
+  independent.
+- `ratio` is the geometric mean over tasks, with a 95% t interval.
+- `p` is the exact sign-flip test over tasks (`statistics.sign_flip_p`),
+  enumerated up to 16 tasks and seeded past that. It decides whether the
+  tasks show a difference.
+- A task with a resource unlogged on either side is left out and listed
+  (`tasks_unlogged`). Fewer than 3 tasks: no interval, with a reason.
+
+Measured on null data, where the right answer is no difference:
+- **Recorded A/A suite**, each task's four runs re-dealt 2,000 times. The
+  sign-flip test showed a difference 2.4% (tokens), 3.2% (seconds) and
+  2.8% (steps) of the time. The t interval alone excluded 1 in 8.9% for
+  tokens. The task jackknife used for cost: 7.3%, 5.1% and 8.9%.
+- **Synthetic, seeded** (6 or 12 tasks of very different sizes, 2 to 10
+  runs, each side's runs of a task sharing a batch nudge). Null
+  rejections:
+  - sign-flip 2.4–6.1%;
+  - t interval 3.9–6.1%;
+  - jackknife 7.5–11.7%;
+  - permuting A and B labels within a task 6–25%, because batched runs
+    are not interchangeable.
+- **The same synthetic suites with B using 25% more:** the sign-flip
+  test found it 8–100% of the time, depending on tasks and runs. A pooled
+  Mann–Whitney over every run found it 0.8–42%. It found it at most 8%
+  of the time on 6 tasks, because task sizes swamp the difference.
+
+On real runs:
+- The kept harness change on the hard six used 1.33× the tokens (0.87–
+  2.02), 1.47× the time and 1.32× the steps. None is shown (p 0.16,
+  0.47, 0.19).
+- On the A/A suite nothing is shown. Its steps interval, 0.70–0.98,
+  excludes 1 for one agent against itself, while p = 0.0625. That is
+  why the exact test decides and the interval only sizes the ratio.
+
 ## How many verdicts a rerun would change
 
 `reliability` now carries `rerun_flips` for each agent: if the whole
