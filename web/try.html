@@ -104,6 +104,8 @@ details.table summary{cursor:pointer;font-weight:600}
 table.data{border-collapse:collapse;font-size:13px;width:100%;margin:10px 0 4px;font-variant-numeric:tabular-nums}
 table.data th,table.data td{text-align:left;padding:5px 8px;border-top:1px solid var(--line);white-space:nowrap}
 table.data thead th{border-top:0;color:var(--ink-2)}
+.paired .facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:6px 0;font-variant-numeric:tabular-nums}
+.paired .facts dt{color:var(--ink-2)}.paired .facts dd{margin:0}.paired .facts small{color:var(--ink-2)}.paired .facts .w{color:var(--warn-ink);font-weight:700}
 .paired{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:12px;margin:0 0 14px}
 .note{font-size:13px;color:var(--ink-2)}
 .warnline{font-size:13px;color:var(--bad-ink);margin:4px 0 0}
@@ -193,7 +195,7 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
     "from agentdiff import registry",
     "from agentdiff.reliability import reliability",
     "from agentdiff.statistics import paired_inference",
-    "from agentdiff.efficiency import cost_per_success_over_runs",
+    "from agentdiff.efficiency import cost_per_success_over_runs, resources_per_run",
     "from agentdiff.claude_code import register_format as _cc",
     "from agentdiff.adapters import register_formats as _rl",
     "_cc(); _rl()",
@@ -246,7 +248,9 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
     "        pi = paired_inference([(rate(data[t][a]), rate(data[t][b])) for t in both], labels=(a, b))",
     "        cost = cost_per_success_over_runs({t: {'a': data[t][a], 'b': data[t][b]} for t in both})",
     "        pair = {'labels': [a, b], 'paired': {k: pi.get(k) for k in ('n_pairs', 'diff', 'ci95', 'sign_test_p', 'verdict', 'a_wins', 'b_wins', 'ties')},",
-    "                'cost': {k: cost.get(k) for k in ('ratio', 'low', 'high', 'excludes_one', 'reason', 'runs', 'tasks')}}",
+    "                'cost': {k: cost.get(k) for k in ('ratio', 'low', 'high', 'excludes_one', 'reason', 'runs', 'tasks')},",
+    "                'resources': {name: {k: r.get(k) for k in ('ratio', 'low', 'high', 'p', 'tasks', 'reason')}",
+    "                              for name, r in resources_per_run({t: {'a': data[t][a], 'b': data[t][b]} for t in both}).items()}}",
     "    return json.dumps({'agents': agents, 'per_agent': per_agent, 'grid': grid, 'pair': pair,",
     "                       'formats': formats, 'skipped': skipped, 'runs': len(trajs)})"
   ].join("\n");
@@ -406,6 +410,20 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
       el("div", { class: "who", text: "Cost per success, " + L[1] + " over " + L[0] + ", every run" }),
       el("div", { class: "hero" }, [document.createTextNode(c.ratio === null ? "—" : c.ratio.toFixed(2) + "×"), el("small", { text: c.runs ? (c.runs.a + c.runs.b) + " runs" : "" })]),
       el("div", { class: "label", text: c.low !== null && c.low !== undefined ? "95% interval " + c.low.toFixed(2) + "–" + c.high.toFixed(2) + (c.excludes_one ? ": excludes 1" : ": includes 1, so these tasks cannot tell which is dearer") : (c.reason || "") })
+    ]));
+    // tokens, time and steps per run: the ratio sizes it, the exact test over tasks says whether it is shown
+    var res = out.pair.resources || {}, NAMES = { tokens: "Tokens", seconds: "Time", steps: "Steps" };
+    var rows = Object.keys(NAMES).filter(function (k) { return res[k] && res[k].ratio !== null && res[k].ratio !== undefined; });
+    if (rows.length) host.appendChild(el("div", { class: "tile" }, [
+      el("div", { class: "who", text: "Per run, " + L[1] + " over " + L[0] }),
+      el("dl", { class: "facts" }, rows.reduce(function (acc, k) {
+        var r = res[k], shown = r.p !== null && r.p <= 0.05;
+        acc.push(el("dt", { text: NAMES[k] }));
+        acc.push(el("dd", {}, [el("span", { class: shown ? "w" : "", text: (shown ? "⚠ " : "") + r.ratio.toFixed(2) + "×" }),
+          el("small", { text: (r.low !== null && r.low !== undefined ? " " + r.low.toFixed(2) + "–" + r.high.toFixed(2) : "") + " · p " + (r.p === null ? "—" : r.p.toFixed(2)) })]));
+        return acc;
+      }, [])),
+      el("div", { class: "label", text: "Each task counts once. p is an exact sign-flip test over tasks; " + (rows.some(function (k) { return res[k].p !== null && res[k].p <= 0.05; }) ? "⚠ marks a difference the tasks show." : "none of these differences is shown by these tasks.") })
     ]));
   }
 

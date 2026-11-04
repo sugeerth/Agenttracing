@@ -4,6 +4,32 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-04, second run
+
+**Read:** nothing new. This run follows up the finding the first run
+left: the jackknife the cost-per-success ratio uses ran over its 5% on
+null suites of per-run resources.
+
+**Measured: the cost ratio is not affected.** The test was synthetic and
+seeded: 6 to 12 tasks with pass rates from 20% to 95%, costs of very
+different sizes, 2 to 10 runs, with and without a shared batch nudge per
+side. It set the jackknife against a task-level swap test, which tries
+every way of exchanging A's and B's runs of whole tasks and is exact
+when the two are interchangeable.
+- With no difference, the jackknife excluded 1 in 2.5–5.9% of suites,
+  and the swap test in 2.8–5.5%. On the recorded A/A suite re-dealt
+  2,000 times: 4.8% and 2.4%.
+- With B 25% or 50% dearer per run, the jackknife found it more often
+  than the swap test, in every setting.
+- A success that comes and goes from run to run makes each task's cost
+  per success noisy enough that the interval's width keeps up. Per-run
+  resources have no such noise, so there the jackknife ran over.
+
+**Taken:** nothing in the engine. The cost ratio keeps its jackknife.
+The per-run comparison from the first run now shows in the web
+dashboard's two-agent panel: tokens, time and steps, each with its exact
+test, marked ⚠ only when the tasks show a difference.
+
 ## 2026-11-04
 
 **How it was read.** Through search-engine extracts.

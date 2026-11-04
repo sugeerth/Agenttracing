@@ -5,6 +5,14 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The web dashboard compares tokens, time and steps
+
+The repeatability dashboard's two-agent panel has a third tile. It shows
+tokens, time and steps per run, B over A, from `resources_per_run`: the
+ratio, its interval, and the exact sign-flip p over tasks. A ratio is
+marked ⚠ only when the tasks show a difference. On the recorded harness
+suite none does (tokens 1.33×, p 0.16).
+
 ## Tokens, time and steps per run, with a test that holds
 
 `efficiency.resource_ratio_over_runs` compares how much of a resource B
