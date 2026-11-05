@@ -16,15 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from agentdiff.efficiency import resource_ratio_over_runs, resource_text, resources_per_run  # noqa: E402
-from agentdiff.statistics import sign_flip_p  # noqa: E402
+from agentdiff.statistics import SIGN_FLIP_DRAWS, SIGN_FLIP_EXACT_MAX, sign_flip_p, t_critical  # noqa: E402
 from agentdiff.trace import Trajectory  # noqa: E402
 
 
-def _traj(task, run, tokens=0, seconds=0.0, steps=1):
+def _traj(task, run, tokens=0, seconds=0.0, steps=1, out_tokens=0):
     return Trajectory.from_dict({
         "schema_version": 1, "trace_id": f"{task}-{run}", "run_id": f"r{run}", "agent": {"name": "x"},
         "task": {"id": task, "prompt": "p"}, "outcome": {"success": True, "answer": "a"},
-        "totals": {"input_tokens": tokens, "output_tokens": 0, "latency_s": seconds},
+        "totals": {"input_tokens": tokens, "output_tokens": out_tokens, "latency_s": seconds},
         "steps": [{"index": i, "type": "answer", "name": "final", "input": "", "output": "a"} for i in range(steps)]})
 
 
@@ -47,6 +47,16 @@ class SignFlipTest(unittest.TestCase):
             for level in (0.05, 0.1, 0.25):
                 self.assertLessEqual(sum(p <= level for p in ps) / len(ps), level + 1e-12, (n, level))
 
+    def test_enumerated_up_to_the_limit_and_drawn_past_it(self):
+        """Exactly at the limit the p is a count over all 2^n sign patterns; one past it, a seeded draw."""
+        n = SIGN_FLIP_EXACT_MAX
+        vals = [0.1 * (i % 3) - 0.05 for i in range(n)]
+        hits = sum(abs(sum(-v if mask >> i & 1 else v for i, v in enumerate(vals))) >= abs(sum(vals)) - 1e-9
+                   for mask in range(1 << n))
+        self.assertAlmostEqual(sign_flip_p(vals), hits / (1 << n), places=12)
+        drawn = sign_flip_p(vals + [0.07])
+        self.assertAlmostEqual(drawn * (1 + SIGN_FLIP_DRAWS), round(drawn * (1 + SIGN_FLIP_DRAWS)), places=6)
+
     def test_drawn_past_the_exact_limit_is_seeded_and_close(self):
         vals = [0.1 * ((-1) ** i) + 0.02 for i in range(20)]
         p = sign_flip_p(vals)
@@ -63,6 +73,22 @@ class ResourceRatioTest(unittest.TestCase):
         self.assertEqual(r["runs"], {"a": 12, "b": 18})
         self.assertEqual(r["p"], round(2 / 64, 4))
         self.assertIn("uses 2.00× A's tokens per run", resource_text(r, {"a": "A", "b": "B"}))
+
+    def test_the_interval_and_per_task_figures_by_hand(self):
+        """Three tasks with ratios 1.5, 2 and 3, worked out by hand: the geometric mean, a t interval on the logs
+        that is wider above than below, and each task's means, both token kinds counted."""
+        ratios = (1.5, 2.0, 3.0)
+        data = {f"t{i}": {"a": [_traj(f"t{i}", 0, tokens=60, out_tokens=40)],
+                          "b": [_traj(f"t{i}", 0, tokens=round(100 * r) - 10, out_tokens=10)]} for i, r in enumerate(ratios)}
+        r = resource_ratio_over_runs(data, "tokens")
+        logs = [math.log(x) for x in ratios]
+        mean = sum(logs) / 3
+        half = t_critical(2) * math.sqrt(sum((v - mean) ** 2 for v in logs) / 2) / math.sqrt(3)
+        self.assertEqual(r["ratio"], round(math.exp(mean), 4))
+        self.assertEqual((r["low"], r["high"]), (round(math.exp(mean - half), 4), round(math.exp(mean + half), 4)))
+        self.assertTrue(r["low"] < r["ratio"] < r["high"])
+        self.assertEqual(r["per_task"][0], {"task": "t0", "a": 100.0, "b": 150.0, "ratio": 1.5})
+        self.assertFalse(r["excludes_one"])
 
     def test_a_task_counts_once_however_many_runs(self):
         """Ten cheap runs on one task do not outweigh one run on another: the ratio is over tasks."""
@@ -96,6 +122,17 @@ class ResourceRatioTest(unittest.TestCase):
                                  "b": [_traj(f"t{i}", r, tokens=max(1, round(base * nb * math.exp(rng.gauss(0, .3))))) for r in range(3)]}
             alarms += resource_ratio_over_runs(data, "tokens")["p"] <= 0.05
         self.assertLessEqual(alarms / sims, 0.07)
+
+    def test_runs_prints_a_line_for_each(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            out = subprocess.run([sys.executable, "-m", "agentdiff", "runs", str(ROOT / "demo/vendors/aa-suite/traces"),
+                                  "-o", tmp], cwd=str(ROOT), capture_output=True, text=True, timeout=600)
+        lines = [ln for ln in out.stdout.splitlines() if ln.startswith("Per run: ")]
+        self.assertEqual(len(lines), 3, out.stdout[-2000:])
+        self.assertIn("B uses 0.95× A's tokens per run (95% interval 0.85–1.06 over 6 tasks); exact sign-flip test "
+                      "over tasks p = 0.25: the tasks do not show a difference", lines[0])
 
     def test_recorded_aa_suite_shows_no_difference(self):
         """Real runs of one agent under two names: none of its resources should differ."""

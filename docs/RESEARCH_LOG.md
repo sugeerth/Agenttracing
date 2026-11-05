@@ -4,6 +4,53 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-05
+
+**How it was read.** Through search-engine extracts. The essay *Before
+You Score the Model, Score the Benchmark* (centre-for-software-
+excellence.github.io) is outside this session's network allowance.
+
+**Read:**
+- *SWE-ABS* (arXiv 2603.00520). It writes mutant patches that pass a
+  task's tests, then tests that reject them. About 1 in 5 "solved"
+  patches from the top 30 agents were semantically wrong. The top score
+  fell from 78.8% to 62.2%.
+- *Are Benchmark Tests Strong Enough?* (STING, arXiv 2604.01518).
+  Mutation-guided variants of the gold patch: 77% of SWE-bench Verified
+  instances have at least one variant the tests let through. Stronger
+  tests cut the top 10 agents' resolved rates by 4.2–9.0 points.
+- *Are "Solved Issues" in SWE-bench Really Solved Correctly?* (arXiv
+  2503.15223). Generated tests tell 29.6% of plausible patches from the
+  oracle patch.
+- *Agent Psychometrics* (arXiv 2604.00594). IRT with task features for
+  agentic coding, and subsets of tasks near 50% difficulty.
+- *Beyond Test Presence* (arXiv 2607.12068), on agent-written tests.
+- *When Agents Disagree With Themselves*, ICML 2026 version (arXiv
+  2602.11619). Consistency flags failures at AUROC 0.62–0.78.
+
+**Taken: how much each from-git grader can tell apart.** AgentDiff's
+repository-history tasks are graded by the commit's own held-out tests,
+already checked to be sound and not flaky. Nothing measured whether they
+are strong enough to tell a correct change from a near miss. That is the
+gap SWE-ABS and STING found in SWE-bench.
+- Built: mutants of the commit's own changed lines, made with `ast` and
+  graded by the task's check (`--grader-mutants N`). It reports counts
+  and decides nothing.
+- Measured on AgentDiff's own history: 42 of 60 changes caught across 6
+  commits. The weakest was this project's own commit from yesterday (3
+  of 12). Its misses showed three untested paths; tests were added, and
+  the same changes went to 10 of 12.
+- Not measured: python-slugify. Running a third party's tests was
+  refused here, and that was left as it is.
+
+**Not taken, and why:**
+- **Writing tests that kill the surviving mutants** (SWE-ABS). A model
+  would write the tests that then judge the runs.
+- **Item response theory with task features** (Agent Psychometrics).
+  Rejected on 2026-10-19 (IRT), and nothing here changes the reason.
+- **Consistency as a failure signal** (AUROC 0.62–0.78). A correlation
+  over one benchmark. Declined on 2026-10-31 for the same reason.
+
 ## 2026-11-04, second run
 
 **Read:** nothing new. This run follows up the finding the first run

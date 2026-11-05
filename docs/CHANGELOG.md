@@ -5,6 +5,34 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## How much a from-git grader can tell apart
+
+`gittasks.grader_strength`, `gittasks.mutants`, `build(mutant_limit=N)`
+and `agentdiff self-evolve --from-git REPO --grader-mutants N`.
+- Small changes are made only on the lines a commit changed: a
+  comparison flipped; `and` for `or`; `+` for `-`; a constant one up;
+  `True` for `False`; a condition negated; a return made to return
+  `None`.
+- Each changed version is graded by the task's own held-out check, after
+  a rewrite with no change has passed it.
+- Each kept task carries `grader`: `tried`, `caught`, `missed`,
+  `no_verdict`, `sites` and `missed_at`. A missed change is a gap in the
+  tests or a change that does nothing.
+- It is off by default, costs test runs only, and keeps or drops no
+  task.
+
+Measured:
+- **Fixture:** a test of a middle value alone caught 3 of 7 changes to a
+  clamp function. Tests at the edges caught 5. Their 2 misses change
+  nothing, since at the bound both versions return the bound.
+- **AgentDiff's own history** (6 recent commits): 42 of 60 caught.
+  Running python-slugify's tests was refused here, as running a third
+  party's code, so that measurement is not made.
+- **The weakest commit** was the per-run resource ratio (3 of 12). Six
+  of its misses were real gaps, and tests were added for them
+  (`tests/test_resource_ratio.py`). The same 12 changes then went to 10
+  of 12.
+
 ## The web dashboard compares tokens, time and steps
 
 The repeatability dashboard's two-agent panel has a third tile. It shows

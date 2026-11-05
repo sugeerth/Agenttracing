@@ -133,6 +133,32 @@ agent runs.
     unheld, and fails held, in a test.
   - **Limit:** a `--test-cmd` whose output names no passing tests is not
     held, and the task says so (`held_to` 0).
+- **How much a grader can tell apart** (`--grader-mutants N`, off by
+  default). Each kept task's commit is changed in small ways, one at a
+  time, only on the lines the commit itself changed:
+  - a comparison flipped (`<` for `<=`, `==` for `!=`, `in` for `not in`);
+  - `and` for `or`, or `+` for `-`;
+  - a constant one up, or `True` for `False`;
+  - a condition negated, or a return made to return `None`.
+
+  Each changed version is graded by the task's own held-out check. The
+  task then carries `grader`: how many changes the tests caught, how many
+  they missed, and where. A missed change is either a gap in the tests or
+  a change that does nothing, and no check here can tell the two apart.
+  A file is first rewritten with no change, and the check must pass on
+  it. Up to N changes a task, an evenly spaced and fixed selection. It
+  costs a test run per change, never an agent run, and keeps or drops no
+  task.
+  - **Measured on AgentDiff's own history** (6 recent commits, 12
+    changes each at most): the held-out tests caught 42 of 60. Per
+    commit: 11/12, 11/12, 10/12, 4/7, 3/5 and 3/12.
+  - The 3/12 commit was this project's own per-run resource ratio. Six
+    of its misses were real gaps: its command-line line was never run,
+    output tokens were never set, and the interval was only ever tested
+    with zero spread. With tests added for them, the same 12 changes
+    went from 3 caught to 10. The 2 still missed (a rounding precision,
+    and the enumeration limit read from the module) change nothing that
+    matters.
 - **The workspace holds no history.** It is the parent's tree from
   `git archive`, with no `.git`, so the agent cannot read the fix from
   the repository's own log.
