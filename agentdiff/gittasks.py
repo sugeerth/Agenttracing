@@ -18,6 +18,7 @@ here reaches a network.
 
 from __future__ import annotations
 
+import ast
 import io
 import json
 import os
@@ -31,7 +32,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 
-__all__ = ["candidates", "build", "RUNNER", "PROMPT"]
+__all__ = ["candidates", "build", "mutants", "grader_strength", "RUNNER", "PROMPT"]
 
 #: what the agent is told, around the commit's own message
 PROMPT = ("In this repository, make the following change:\n\n{message}\n\n"
@@ -174,12 +175,150 @@ def _disagrees(check: List[str], tree: Path, want: bool, times: int, timeout: fl
     return None
 
 
+_SWAP = {ast.Lt: ast.LtE, ast.LtE: ast.Lt, ast.Gt: ast.GtE, ast.GtE: ast.Gt, ast.Eq: ast.NotEq, ast.NotEq: ast.Eq,
+         ast.In: ast.NotIn, ast.NotIn: ast.In, ast.Is: ast.IsNot, ast.IsNot: ast.Is,
+         ast.And: ast.Or, ast.Or: ast.And, ast.Add: ast.Sub, ast.Sub: ast.Add}
+
+
+def _sites(tree: ast.AST, lines: set) -> List[tuple]:
+    """Every place on ``lines`` a mutant can be made, in source order, as (line, column, kind, index)."""
+    out = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", None)
+        if line not in lines:
+            continue
+        col = getattr(node, "col_offset", 0)
+        if isinstance(node, ast.Compare):
+            out += [(line, col, f"{type(op).__name__} → {_SWAP[type(op)].__name__}", ("cmp", node, i))
+                    for i, op in enumerate(node.ops) if type(op) in _SWAP]
+        elif isinstance(node, ast.BoolOp):
+            out.append((line, col, f"{type(node.op).__name__} → {_SWAP[type(node.op)].__name__}", ("bool", node, 0)))
+        elif isinstance(node, ast.BinOp) and type(node.op) in _SWAP:
+            out.append((line, col, f"{type(node.op).__name__} → {_SWAP[type(node.op)].__name__}", ("bin", node, 0)))
+        elif isinstance(node, ast.Constant) and type(node.value) is bool:
+            out.append((line, col, f"{node.value} → {not node.value}", ("bool_const", node, 0)))
+        elif isinstance(node, ast.Constant) and type(node.value) is int:
+            out.append((line, col, f"{node.value} → {node.value + 1}", ("int", node, 0)))
+        elif isinstance(node, (ast.If, ast.While)):
+            out.append((line, col, "condition negated", ("not", node, 0)))
+        elif isinstance(node, ast.Return) and node.value is not None and not (
+                isinstance(node.value, ast.Constant) and node.value.value is None):
+            out.append((line, col, "returns None", ("ret", node, 0)))
+    return sorted(out, key=lambda s: (s[0], s[1], s[2]))
+
+
+def _apply(site: tuple) -> tuple:
+    """Make one mutant in place; returns what undoes it."""
+    kind, node, i = site[3]
+    if kind == "cmp":
+        old = node.ops[i]; node.ops[i] = _SWAP[type(old)](); return (lambda: node.ops.__setitem__(i, old))
+    if kind == "bool":
+        old = node.op; node.op = _SWAP[type(old)](); return (lambda: setattr(node, "op", old))
+    if kind == "bin":
+        old = node.op; node.op = _SWAP[type(old)](); return (lambda: setattr(node, "op", old))
+    if kind == "bool_const":
+        old = node.value; node.value = not old; return (lambda: setattr(node, "value", old))
+    if kind == "int":
+        old = node.value; node.value = old + 1; return (lambda: setattr(node, "value", old))
+    if kind == "not":
+        old = node.test; node.test = ast.UnaryOp(op=ast.Not(), operand=old); return (lambda: setattr(node, "test", old))
+    old = node.value; node.value = ast.Constant(value=None); return (lambda: setattr(node, "value", old))
+
+
+def mutants(source: str, lines: set, limit: Optional[int] = None) -> dict:
+    """Small changes to ``source``, one at a time and only on ``lines``: a comparison flipped (< for <=, ==
+    for !=, in for not in), and for or, + for -, a constant one up, True for False, a condition negated, a
+    return made to return None. Each is the whole file written back by ``ast.unparse``; ``baseline`` is the
+    file written back with no change, which a check must pass first, since rewriting drops comments and
+    layout. With more sites than ``limit``, an evenly spaced, fixed selection. Returns
+    ``{"baseline", "sites", "mutants": [{"line", "change", "source"}]}``; None for a file that does not parse."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    sites = _sites(tree, lines)
+    pick = sites
+    if limit is not None and len(sites) > limit:
+        pick = [sites[round(k * (len(sites) - 1) / max(1, limit - 1))] for k in range(limit)] if limit > 0 else []
+    made = []
+    for site in pick:
+        undo = _apply(site)
+        try:
+            made.append({"line": site[0], "change": site[2], "source": ast.unparse(tree) + "\n"})
+        finally:
+            undo()
+    return {"baseline": ast.unparse(tree) + "\n", "sites": len(sites), "mutants": made}
+
+
+def _changed_lines(repo: Path, parent: str, sha: str, path: str) -> set:
+    """The lines of ``path`` at ``sha`` that the commit added or changed."""
+    out = set()
+    for m in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", _git(repo, "diff", "-U0", parent, sha, "--", path), re.M):
+        start, count = int(m.group(1)), int(m.group(2) if m.group(2) is not None else 1)
+        out.update(range(start, start + count))
+    return out
+
+
+def grader_strength(repo: Path, task: dict, *, limit: int = 20, timeout: float = 300.0) -> dict:
+    """How much of the commit's own change its held-out tests can tell apart. Each mutant is the commit's
+    tree with one small change on a line the commit changed, graded by the task's own check. A mutant the
+    check fails is caught; one it passes is missed, which is a gap in the tests or a change that does
+    nothing (no check here tells the two apart). Counts only: it keeps or drops no task.
+    Returns ``{"tried", "caught", "missed", "no_verdict", "sites", "missed_at", "reason"}``."""
+    repo = Path(repo).resolve()
+    src, check = task["source"], shlex.split(task["check"]) if os.name != "nt" else task["check"]
+    out = {"tried": 0, "caught": 0, "missed": 0, "no_verdict": 0, "sites": 0, "missed_at": [], "files": [], "reason": None}
+    per_file = max(1, limit // max(1, len(src["code"])))
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp) / "commit"
+        _extract(repo, src["commit"], base)
+        for path in src["code"]:
+            file = base / path
+            if not file.exists():
+                continue
+            made = mutants(file.read_text(encoding="utf-8", errors="replace"),
+                           _changed_lines(repo, src["parent"], src["commit"], path), per_file)
+            if made is None:
+                out["files"].append({"file": path, "reason": "does not parse"})
+                continue
+            out["sites"] += made["sites"]
+            if not made["mutants"]:
+                out["files"].append({"file": path, "reason": "no site to change on the lines the commit changed"})
+                continue
+            original = file.read_text(encoding="utf-8", errors="replace")
+            file.write_text(made["baseline"], encoding="utf-8")
+            ok, _ = _run(check, base, timeout)
+            if ok is not True:
+                file.write_text(original, encoding="utf-8")
+                out["files"].append({"file": path, "reason": "the check fails on the file rewritten without a change"})
+                continue
+            for m in made["mutants"]:
+                file.write_text(m["source"], encoding="utf-8")
+                got, _ = _run(check, base, timeout)
+                out["tried"] += 1
+                if got is None:
+                    out["no_verdict"] += 1
+                elif got:
+                    out["missed"] += 1
+                    out["missed_at"].append({"file": path, "line": m["line"], "change": m["change"]})
+                else:
+                    out["caught"] += 1
+            file.write_text(original, encoding="utf-8")
+            out["files"].append({"file": path, "tried": len(made["mutants"]), "reason": None})
+    if not out["tried"]:
+        out["reason"] = "no mutant could be graded"
+    return out
+
+
 def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: Optional[str] = None,
-          timeout: float = 300.0, python: Optional[str] = None, on_progress=None, checks: int = 3) -> dict:
+          timeout: float = 300.0, python: Optional[str] = None, on_progress=None, checks: int = 3,
+          mutant_limit: int = 0) -> dict:
     """Up to ``want`` tasks from ``repo``'s history, each validated, written under ``dest`` with a tasks.json.
     A grader is checked ``checks`` times on the parent and on the commit, each run on a fresh copy: a task
     whose tests do not fail on the parent every time and pass on the commit every time is flaky, and left
-    out, since a flaky grader would pass or fail the agent's runs by chance.
+    out, since a flaky grader would pass or fail the agent's runs by chance. With ``mutant_limit`` above 0,
+    each kept task also carries ``grader``, from :func:`grader_strength`: how many small changes to the
+    commit's own lines its tests catch. It is reported, and keeps or drops no task.
     Returns ``{"tasks": path or None, "kept": [...], "skipped": [{"sha", "subject", "why"}]}``."""
     say = on_progress or (lambda s: None)
     repo, dest = Path(repo).resolve(), Path(dest).resolve()
@@ -250,6 +389,11 @@ def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: O
                                 "tests": c["tests"], "code": c["code"]}})
         say(f"{tid}: kept: fails on the parent, passes on the commit"
             + (f", {checks} times each" if checks > 1 else ""))
+        if mutant_limit > 0:
+            g = grader_strength(repo, kept[-1], limit=mutant_limit, timeout=timeout)
+            kept[-1]["grader"] = g
+            say(f"{tid}: its tests caught {g['caught']} of {g['tried']} small change(s) to the commit's own lines"
+                + (f"; missed {g['missed']}" if g["missed"] else "") + (f" ({g['reason']})" if g["reason"] else ""))
     path = None
     if kept:
         path = dest / "tasks.json"
