@@ -197,6 +197,22 @@ def _stop(signum, frame):
     raise KeyboardInterrupt
 
 
+def _retrieval(args, tasks, out: Path) -> dict:
+    """Every run's trace under ``out``, checked for reaching outside its workspace for the project's own code
+    (:func:`agentdiff.gittasks.retrieval_check`). Reported in the result; no verdict changes."""
+    from ..gittasks import project_names, retrieval_check
+    from ..trace import Trajectory
+    repo = Path(os.path.expanduser(args.from_git)).resolve()
+    names = project_names(repo.name, tasks[0].get("workspace") if tasks else None)
+    trajs = []
+    for path in sorted(out.glob("**/traces/*.json")):
+        try:
+            trajs.append(Trajectory.from_json(path))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return retrieval_check(trajs, names)
+
+
 def _write_result(out: Path, result: dict) -> None:
     """self-evolve.json, harness.json, SELF_EVOLVE.md and the eval suite: after every generation, and at the end."""
     import tempfile
@@ -519,6 +535,9 @@ def run(args: argparse.Namespace) -> int:
             write_ledger(ledger_path, result["ledger"])
             _write_result(out, result)
             return 130
+    if args.from_git:
+        result["retrieval"] = _retrieval(args, tasks, out)
+        said(f"retrieval check: {result['retrieval']['says']}")
     write_ledger(ledger_path, result["ledger"])
     _write_result(out, result)
     progress.end("done", result["stop"])

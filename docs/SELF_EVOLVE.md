@@ -159,6 +159,27 @@ agent runs.
     went from 3 caught to 10. The 2 still missed (a rounding precision,
     and the enumeration limit read from the module) change nothing that
     matters.
+- **Whether a run reached for the fix.** Taking `.git` out of the
+  workspace stops an agent reading the answer from history. It does not
+  stop an agent with a network or an installed copy of the project from
+  finding the merged change. After a `--from-git` run, every trace is
+  read for steps that reached outside the workspace for the project's own
+  code (`gittasks.retrieval_check`). The project's names come from the
+  repository and its top-level packages. Flagged:
+  - git talking to a remote;
+  - a package index asked for the project (pip `install`, `download` or
+    `show` naming it);
+  - a URL or a web search that names it;
+  - a path into an installed copy (`site-packages/<package>`).
+
+  Each shell command is split into its parts and read token by token, so
+  a line that installs a linter and then lints `slugify/slugify.py` is
+  not taken for a fetch. It is in `self-evolve.json` as `retrieval`, and
+  it changes no verdict.
+  - **Recorded:** 0 of 212 distinct real python-slugify runs reached
+    outside (2,542 of their 2,549 tool inputs parsed). A plain text
+    search over the same runs flagged 3, all wrong: a linter install, a
+    coverage install and a `pip show` of packaging tools.
 - **The workspace holds no history.** It is the parent's tree from
   `git archive`, with no `.git`, so the agent cannot read the fix from
   the repository's own log.

@@ -32,7 +32,8 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 
-__all__ = ["candidates", "build", "mutants", "grader_strength", "RUNNER", "PROMPT"]
+__all__ = ["candidates", "build", "mutants", "grader_strength", "project_names", "reached_outside",
+           "retrieval_check", "RUNNER", "PROMPT"]
 
 #: what the agent is told, around the commit's own message
 PROMPT = ("In this repository, make the following change:\n\n{message}\n\n"
@@ -308,6 +309,134 @@ def grader_strength(repo: Path, task: dict, *, limit: int = 20, timeout: float =
     if not out["tried"]:
         out["reason"] = "no mutant could be graded"
     return out
+
+
+def _norm_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name.strip().lower())
+
+
+def project_names(repo_name: str, workspace=None) -> List[str]:
+    """What a project goes by: its repository's name and its top-level Python packages (a directory with an
+    ``__init__.py`` at the root of the workspace or under ``src/``), normalised as package indexes do."""
+    names = {_norm_name(repo_name)}
+    if workspace:
+        ws = Path(workspace)
+        for base in (ws, ws / "src"):
+            if base.is_dir():
+                names.update(_norm_name(d.name) for d in base.iterdir() if d.is_dir() and (d / "__init__.py").is_file()
+                             and not d.name.startswith((".", "_")) and not _is_test(d.name + "/"))
+    return sorted(n for n in names if len(n) >= 3)
+
+
+_SPLIT = re.compile(r"\s*(?:;|&&|\|\||\||\n)\s*")
+_REQ = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def _segments(command: str) -> List[List[str]]:
+    out = []
+    for part in _SPLIT.split(command or ""):
+        try:
+            toks = shlex.split(part, posix=True)
+        except ValueError:
+            toks = part.split()
+        while toks and ("=" in toks[0] and not toks[0].startswith("-") or toks[0] in ("sudo", "env", "time", "command")):
+            toks = toks[1:]
+        if toks:
+            out.append(toks)
+    return out
+
+
+def _installed(text: str, names: List[str]) -> bool:
+    low = text.lower().replace("_", "-")
+    return any(re.search(rf"(site|dist)-packages/{re.escape(n)}(\b|/|-)", low) for n in names)
+
+
+def _tool_input(value) -> dict:
+    """A tool call's input as a dict: traces keep it as JSON text (or, from some converters, a Python literal)."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.lstrip().startswith("{"):
+        for parse in (json.loads, ast.literal_eval):
+            try:
+                got = parse(value)
+            except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+                continue
+            if isinstance(got, dict):
+                return got
+    return {}
+
+
+def reached_outside(trajectory, names: List[str]) -> List[dict]:
+    """The steps of a run on a task from a repository's history that reached outside its workspace for the
+    project's own code: git talking to a remote (the workspace carries no ``.git``), a package index asked for
+    the project, a URL or web search that names it, or a path into an installed copy of it. Any of these can
+    hand the agent the change it was asked to make. Read from the tool calls the trace records, by rule; a run
+    whose tools the trace does not record cannot be checked. Returns ``[{"step", "kind", "evidence"}]``."""
+    names = [_norm_name(n) for n in names if n]
+    found = []
+
+    def hit(step, kind, evidence):
+        found.append({"step": step.index, "kind": kind, "evidence": str(evidence)[:200]})
+
+    def names_project(text: str) -> bool:
+        low = _norm_name(str(text))
+        return any(n in low for n in names)
+
+    for step in trajectory.steps:
+        inp, raw = _tool_input(step.input), step.input if isinstance(step.input, str) else ""
+        tool = (step.name or "").lower()
+        if tool in ("webfetch", "web_fetch", "fetch") and names_project(inp.get("url") or raw):
+            hit(step, "fetched a URL that names the project", inp.get("url") or raw)
+            continue
+        if tool in ("websearch", "web_search") and names_project(inp.get("query") or raw):
+            hit(step, "searched the web for the project", inp.get("query") or raw)
+            continue
+        for key in ("file_path", "path", "pattern", "notebook_path"):
+            val = inp.get(key)
+            if isinstance(val, str) and _installed(val, names):
+                hit(step, "read an installed copy of the project", val)
+        command = inp.get("command") if isinstance(inp.get("command"), str) else (raw if tool in ("bash", "shell") else "")
+        if not command:
+            continue
+        for toks in _segments(command):
+            head = os.path.basename(toks[0]).lower()
+            rest = toks[1:]
+            if head in ("python", "python3") and rest[:2] == ["-m", "pip"]:
+                head, rest = "pip", rest[2:]
+            if head == "git" and rest:
+                sub = [t for t in rest if not t.startswith("-")]
+                if sub[:1] and sub[0] in ("clone", "fetch", "pull", "ls-remote") or sub[:2] == ["remote", "add"]:
+                    hit(step, "used git over the network", " ".join(toks))
+            elif head in ("pip", "pip3") and rest and rest[0] in ("install", "download", "show"):
+                for t in rest[1:]:
+                    m = _REQ.match(t)
+                    if not t.startswith("-") and m and not t.startswith((".", "/")) and _norm_name(m.group(1)) in names:
+                        hit(step, "asked a package index for the project", " ".join(toks))
+                        break
+            if any(t.startswith(("http://", "https://")) and names_project(t) for t in toks):
+                hit(step, "fetched a URL that names the project", " ".join(toks))
+            if any(_installed(t, names) for t in toks):
+                hit(step, "read an installed copy of the project", " ".join(toks))
+    return found
+
+
+def retrieval_check(trajectories, names: List[str]) -> dict:
+    """:func:`reached_outside` over runs: how many of them reached outside the workspace for the project, and
+    where. Reported, never used to change a verdict: a run that found the fix still passed or failed its tests."""
+    runs = list(trajectories)
+    per_run = []
+    for t in runs:
+        steps = reached_outside(t, names)
+        if steps:
+            per_run.append({"run": t.run_id or t.trace_id, "task": t.task.id, "steps": steps})
+    kinds = {}
+    for r in per_run:
+        for s in r["steps"]:
+            kinds[s["kind"]] = kinds.get(s["kind"], 0) + 1
+    says = (f"{len(per_run)} of {len(runs)} run(s) reached outside the workspace for the project's own code"
+            + (": " + "; ".join(f"{k} ({v})" for k, v in sorted(kinds.items())) if kinds else "")
+            if runs else "no runs to check")
+    return {"runs": len(runs), "flagged": len(per_run), "names": names, "kinds": kinds, "per_run": per_run, "says": says}
 
 
 def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: Optional[str] = None,

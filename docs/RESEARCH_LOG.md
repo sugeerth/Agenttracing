@@ -4,6 +4,53 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-06
+
+**How it was read.** Through search-engine extracts.
+
+**Read:**
+- A time-consistent repository benchmark (arXiv 2603.26137). Knowledge
+  is built only from what existed before T0, and tasks come from pull
+  requests merged after it.
+  - Checked here: `project_knowledge` names a guide file, and the agent
+    reads it from its own task's workspace, the commit's parent. So no
+    later content reaches it.
+- *RuBench* (arXiv 2607.06411), again. Freshness does not stop run-time
+  retrieval: a networked agent can fetch the merged fix. It marks cells
+  as contaminated when a fetch returned held-out material.
+- *Schrödinger's Code Repository* (arXiv 2609.27891). Removing familiar
+  repository cues lowered scores, which suggests memorisation.
+- A Microsoft note on sandboxes (September 2026). Local files, such as an
+  installed copy and its history, can leak what a network block keeps
+  out.
+- Harness ablations: *Runtime Harness Adaptation* (arXiv 2605.22166,
+  leave one layer out), *Natural-Language Agent Harnesses* (arXiv
+  2603.25723), *Harness Sensitivity Is Non-Monotone* (arXiv 2605.26731),
+  and a per-line prompt ablation write-up.
+- Attribution: TraceElephant, Who&When Pro, LongRCA, AgenTracer,
+  AgentRx and REFLECT, mostly read before.
+
+**Taken: whether a run reached outside its workspace for the fix.**
+`--from-git` took `.git` away (2026-10-16, second run), but nothing
+checked the other ways out that RuBench and the sandbox note describe.
+- Built: `gittasks.reached_outside` and `retrieval_check`, run at the end
+  of every `--from-git` evolution. Rules over the recorded tool calls,
+  with commands parsed token by token; reported, not acted on.
+- Measured on the recorded python-slugify runs: 0 of 212 reached outside.
+  A first, naive text search flagged 3, all wrong.
+- Also found on the way: traces keep a tool's input as JSON text, so a
+  check that expects a dict silently checks nothing. The first version
+  did exactly that, and the tests caught it.
+
+**Not taken, and why:**
+- **Removing repository cues** (Schrödinger's Code Repository). It
+  rewrites the project the agent works on, and the held-out tests with
+  it, so the grader would no longer be the project's own.
+- **Per-instruction leave-one-out.** `--prune` already re-tests each
+  kept change against the harness without it (2026-10-18).
+- **Model-based attribution** (REFLECT, AgenTracer). A model would pick
+  the step.
+
 ## 2026-11-05
 
 **How it was read.** Through search-engine extracts. The essay *Before

@@ -5,6 +5,30 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Whether a from-git run reached outside its workspace for the fix
+
+`gittasks.reached_outside`, `retrieval_check` and `project_names`. Every
+`--from-git` self-evolve run ends with them, in `self-evolve.json` as
+`retrieval`.
+- The workspaces carry no `.git`, but a network or an installed copy can
+  still hand an agent the merged change.
+- A step is flagged when it:
+  - runs git that talks to a remote;
+  - asks a package index for the project;
+  - fetches a URL that names it;
+  - searches the web for it;
+  - reads a path into an installed copy of it.
+- Shell commands are split into their parts and read token by token.
+- Tool inputs, which traces keep as JSON text, are parsed first.
+- It is reported, and changes no verdict.
+
+Measured:
+- **Recorded:** 0 of 212 distinct real python-slugify runs (2,542 of
+  2,549 tool inputs parsed). A plain text search flagged 3 of them, all
+  wrongly. Those three commands are in the tests as negatives.
+- **Tested:** each kind of step is caught, including a package named
+  with extras and a version, and a copy read through a pipe.
+
 ## How much a from-git grader can tell apart
 
 `gittasks.grader_strength`, `gittasks.mutants`, `build(mutant_limit=N)`
