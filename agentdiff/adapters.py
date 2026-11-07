@@ -212,8 +212,12 @@ def from_otel_genai(
     Returns ``(trajectory_dict, warnings)``; the dict is pre-validated.
     """
     warnings: list[str] = []
-    ordered = sorted(spans, key=lambda s: (_span_time(s, "start"),
-                                           s.get("name", "")))
+    # a span AgentDiff exported carries its step's index: that order is exact even
+    # when steps share a start time (a trace with no recorded latencies)
+    def _order(s: dict) -> tuple:
+        index = str(_span_attrs(s).get("agentdiff.step.index", ""))   # OTLP/JSON carries ints as strings
+        return (_span_time(s, "start"), int(index) if index.isdigit() else -1, s.get("name", ""))
+    ordered = sorted(spans, key=_order)
     steps: list[dict] = []
     total_in = total_out = 0
 
@@ -246,9 +250,12 @@ def from_otel_genai(
         return {"id": own, "agent": str(_span_attrs(agent_spans[own]).get("gen_ai.agent.name") or agent_spans[own].get("name") or own),
                 "parent": parent}
 
+    explicit_last = False
     for span in ordered:
         name = str(span.get("name", ""))
         attrs: dict[str, Any] = _span_attrs(span)
+        if attrs.get("agentdiff.root") is True:
+            continue  # the run itself, as AgentDiff exports it: its steps are the spans beneath it
         op = attrs.get("gen_ai.operation.name")
         if not op:
             head = name.split(" ")[0].lower() if name else ""
@@ -298,8 +305,20 @@ def from_otel_genai(
             )
             continue
 
+        # an AgentDiff export names the step as it was, where the conventions have no word for it
+        explicit_last = bool(attrs.get("agentdiff.step.type"))
+        if explicit_last:
+            step_type = str(attrs["agentdiff.step.type"])
+            # its text exactly as exported, whitespace and all, or none when the export left content out
+            keys = ("gen_ai.prompt", "gen_ai.completion") if op in _CHAT_OPS else (
+                "gen_ai.tool.call.arguments", "gen_ai.tool.call.result")
+            step_input, step_output = (str(attrs.get(k, "")) for k in keys)
+        if attrs.get("agentdiff.step.name"):
+            step_name = str(attrs["agentdiff.step.name"])
         total_in += tok_in
         total_out += tok_out
+        if attrs.get("agentdiff.step.tokens") is not None:
+            tok_in, tok_out = 0, int(attrs["agentdiff.step.tokens"] or 0)
         step = {
             "index": len(steps),
             "type": step_type,
@@ -311,6 +330,8 @@ def from_otel_genai(
             "quality": None,
             "note": None,
         }
+        if str((span.get("status") or {}).get("code")) in ("2", "STATUS_CODE_ERROR"):
+            step["error"] = True
         delegated = delegation_of(span)
         if delegated:
             step["span"] = delegated
@@ -318,7 +339,8 @@ def from_otel_genai(
 
     if not steps:
         raise ValueError("no spans could be mapped to steps")
-    steps[-1]["type"] = "answer"
+    if not explicit_last:
+        steps[-1]["type"] = "answer"
     answer_text = steps[-1]["output"] or steps[-1]["input"]
 
     outcome = outcome or {}
@@ -356,6 +378,49 @@ def from_otel_genai(
     }
     Trajectory.from_json(trajectory)  # validate before handing back
     return trajectory, warnings
+
+
+def is_otlp(data) -> bool:
+    """Whether ``data`` is an OTLP/JSON document (a ``resourceSpans`` list at the top)."""
+    return isinstance(data, dict) and isinstance(data.get("resourceSpans"), list)
+
+
+def otlp_spans(doc: dict) -> list:
+    """Every span of an OTLP/JSON document (``resourceSpans`` → ``scopeSpans`` → ``spans``), in file order."""
+    return [span for rs in doc.get("resourceSpans") or [] for ss in rs.get("scopeSpans") or []
+            for span in ss.get("spans") or [] if isinstance(span, dict)]
+
+
+def from_otlp(doc: dict, agent: Union[str, dict, None] = None, task: Union[str, dict, None] = None,
+              outcome: Optional[dict] = None) -> tuple:
+    """A standard OTLP/JSON document, as an OpenTelemetry Collector's file exporter or
+    :func:`agentdiff.otlp_export.to_otlp` writes it, to a SCHEMA trajectory. The agent, task and outcome come
+    from the arguments, else from the root agent span's attributes; a trace AgentDiff exported comes back with
+    its own trace id, totals, task and outcome."""
+    spans = otlp_spans(doc)
+    root = next((s for s in spans if _span_attrs(s).get("agentdiff.root") is True), None)
+    if root is None:
+        root = next((s for s in spans if _span_attrs(s).get("gen_ai.operation.name") in _AGENT_OPS
+                     and not _parent_id(s)), None)
+    ra = _span_attrs(root) if root else {}
+    if agent is None:
+        agent = {"name": str(ra.get("gen_ai.agent.name") or "otel-agent"),
+                 "model": str(ra.get("gen_ai.request.model") or ""), "version": str(ra.get("agentdiff.agent.version") or "")}
+    if task is None:
+        task = {"id": str(ra.get("agentdiff.task.id") or "task"), "prompt": str(ra.get("agentdiff.task.prompt") or ""),
+                "expected": ra.get("agentdiff.task.expected")}
+    if outcome is None and isinstance(ra.get("agentdiff.outcome.success"), bool):
+        outcome = {"success": ra["agentdiff.outcome.success"]}
+        if ra.get("agentdiff.outcome.answer") is not None:
+            outcome["answer"] = str(ra["agentdiff.outcome.answer"])
+    traj, warnings = from_otel_genai(spans, agent=agent, task=task, outcome=outcome)
+    if ra.get("agentdiff.root") is True:
+        if ra.get("agentdiff.trace_id"):
+            traj["trace_id"] = str(ra["agentdiff.trace_id"])
+        traj["totals"]["input_tokens"] = int(ra.get("gen_ai.usage.input_tokens") or 0)
+        traj["totals"]["output_tokens"] = int(ra.get("gen_ai.usage.output_tokens") or 0)
+        Trajectory.from_json(traj)
+    return traj, warnings
 
 
 def from_openai_messages(

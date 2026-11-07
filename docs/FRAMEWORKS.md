@@ -122,6 +122,31 @@ the guidance to surface is "the run that passed did X at step k where this one d
 from a model. (d) *Show regressions beside improvements* — the gate already does; keep it the default. What not
 to copy: an LLM analysis agent, SQL over a hosted store, a prompt rewriter (see `LANDSCAPE.md` §6).
 
+## 4b. OpenTelemetry both ways
+
+`agentdiff convert --to otel TRACE -o DIR` writes any trace AgentDiff can read as one OTLP/JSON document
+(`<task>__<agent>.otlp.json`, `agentdiff/otlp_export.py`), after the GenAI conventions:
+- **The run** is an `invoke_agent` span.
+- **Each step** is a span beneath it: `execute_tool` for a tool call, `retrieve` or `search` for fetched
+  context, `chat` for reasoning, planning and the answer.
+- **Attributes:** the conventions' own names (`gen_ai.operation.name`, `gen_ai.agent.name`,
+  `gen_ai.tool.name`, `gen_ai.request.model`, `gen_ai.usage.*`). A failed step or run gets an error status.
+- **Times:** on the recorded clock, from `started_at`, else from the file's time.
+- **Content is opt-in**, as in the conventions. Without `--content` a span carries the step's sizes, never
+  its text; with it, the prompt, tool arguments and results, and answers.
+- **Nothing is sent.** Hand the file to a collector, or to any backend that reads OTLP/JSON.
+
+What the conventions have no word for rides under `agentdiff.*`: the step's type, name, index and tokens,
+the task, the outcome, and which span is the run. `convert` reads a standard OTLP/JSON document back, from
+AgentDiff or from a collector's file exporter (`resourceSpans`, detected as `otel`). An AgentDiff export
+comes back step for step.
+- **Measured:** every SCHEMA trace under `demo/` (1,141 traces, 35,009 steps), exported with content and
+  read back. Each step's type, name, tokens, latency, error and text, and each trace's id, outcome, totals
+  and prompt, came back the same. Without content, all of it but the text.
+- **Limit:** a structured input comes back as its JSON text.
+- **Spans from other tools** are read as before. Their root agent span is a planning step, since nothing
+  marks it as the run.
+
 ## 5. Production agents next — the plan
 
 **Trace sources to accept.** (1) OTel GenAI spans from any framework — already the `otel` adapter; extend it to

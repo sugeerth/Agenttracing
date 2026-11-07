@@ -243,6 +243,25 @@ run found that distinction the hard way.
 Haiku 4.5 and Sonnet 5. Both passed 5 of 6. On the impossible task
 neither changed a file, and both said why. Haiku cost about half as much;
 Sonnet was faster and read more.
+Per success, the dearer agent cost 1.84 times the other: the 95% interval
+is 1.33–2.55 over the 6 paired tasks (`efficiency.cost_per_success_ratio`,
+in `batch`'s efficiency narrative). It is a jackknife over tasks; the
+percentile bootstrap it replaced gave 1.45–2.24, and an A/A test showed
+that interval was too narrow (`demo/vendors/aa-suite`). These six tasks
+can tell that gap from noise. With one run each, though, the interval
+covers which tasks were drawn, not how a run varies when repeated.
+
+Tokens, time and steps per run compare the same way, over every run
+(`efficiency.resources_per_run`, the `resources_per_run` section, and a
+line each in `agentdiff runs`). Each task gives one number: the log of
+B's mean per run over A's. The ratio is their geometric mean, with a t
+interval. Whether the tasks show a difference at all is the exact
+sign-flip test over them, which holds for any spread. Measured on null
+data, a do-nothing difference passed it 2.4–6.1% of the time. The
+t interval alone ran to 8.9% on the A/A suite's tokens, and the
+jackknife used for cost to 7–12%. Pooling every run into one rank test
+ignores that a task's runs move together. It rarely raised an alarm,
+but it found a real 25% gain on 6 tasks at most 8% of the time.
 
 ## What is and is not equal
 

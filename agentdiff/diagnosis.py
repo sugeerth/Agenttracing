@@ -40,7 +40,9 @@ import re
 
 from typing import Optional
 
-from .trace import HARNESS_TERMINATIONS, Trajectory
+from .align import _tokenize, first_twinless, twinless_steps  # noqa: F401 (re-exported: the diagnosis's own vocabulary)
+from .conformal import replay_order
+from .trace import HARNESS_TERMINATIONS, Trajectory, reads_as_failed
 from . import sections as _sections
 
 #: hypothesis kinds, in the order generators run (ranking is by score, not
@@ -597,7 +599,11 @@ def _gen_divergence(report: dict, side: str, traj: Trajectory, led: Ledger) -> l
 
     while root < len(traj.steps) - 1 and _excusable_twin(root):
         root += 1
-    category = _root_category(traj, root, divergences[0].get("kind", "divergence"))
+    by_argument = _argument_divergence(report, side, traj, root)
+    if by_argument is not None:
+        root = by_argument
+    category = _root_category(traj, root, "tool_selection" if by_argument is not None
+                              else divergences[0].get("kind", "divergence"))
     supports, contradicts = [], []
     score = 0.45
     root_step = traj.steps[root] if 0 <= root < len(traj.steps) else None
@@ -635,7 +641,50 @@ def _gen_divergence(report: dict, side: str, traj: Trajectory, led: Ledger) -> l
         ),
         "supports": supports, "contradicts": contradicts,
         "score": score, "status": None, "category": category, "root": root,
+        # the call the argument rule moved the root to: when fusion moves the root again, the basis follows
+        "argument_step": by_argument,
     }]
+
+
+def _argument_divergence(report: dict, side: str, traj: Trajectory, root: int) -> Optional[int]:
+    """The earliest tool call before ``root`` that the aligner matched to the other run's call of the same tool
+    although its arguments AND its result differ and that result reaches the decision, or None. Text
+    similarity pairs two calls of one tool by their shared name, so a different argument (another source,
+    another id) can still score as a match and the divergence surfaces only at the decision that read the
+    different result. Different arguments that returned the same result changed nothing and are passed
+    over."""
+    other = "b" if side == "a" else "a"
+    other_steps = (report.get(other) or {}).get("steps", [])
+    decided: dict = {}      # step -> the words the run reasoned, planned or answered there, read once
+
+    def words_at(k: int) -> set:
+        if k not in decided:
+            st = traj.steps[k]
+            decided[k] = _words(f"{st.input} {st.output}") if st.type != "tool_call" else set()
+        return decided[k]
+    for e in report.get("alignment") or []:
+        i, j = e.get(f"{side}_index"), e.get(f"{other}_index")
+        if e.get("op") != "match" or i is None or j is None or i >= root or j >= len(other_steps):
+            continue
+        mine, theirs = traj.steps[i], other_steps[j]
+        if (mine.type != "tool_call" or mine.input == theirs.get("input")
+                or (mine.output or "") == (theirs.get("output") or "")):
+            continue
+        # a call that failed is the error hypotheses' anchor (environment error, invented arguments); this
+        # rule is for a call that quietly returned something else
+        if reads_as_failed(mine):
+            continue
+        # the different result must reach a decision: words only this call's result carries reappear in
+        # what the run itself reasoned, planned or answered, up to the divergent step (a later tool call
+        # repeating a word is not the run deciding on it)
+        only_here = _words(mine.output) - _words(theirs.get("output"))
+        if only_here and any(only_here & words_at(k) for k in range(i + 1, min(root, len(traj.steps) - 1) + 1)):
+            return i
+    return None
+
+
+def _words(text) -> set:
+    return {w for w in _tokenize(str(text or "")) if len(w) > 3}
 
 
 def _flag_steps(side_report: dict, flag: str) -> list[dict]:
@@ -1243,6 +1292,9 @@ DECISIVE_CRITERION = (
 #: itself never claims more than "hypothesized".
 DECISIVE_VERIFICATION = "hypothesized"
 
+#: how many steps of the replay order a diagnosis carries
+REPLAY_SHOWN = 5
+
 #: the one overdetermination signature a trace can show without a replay
 #: (Thought Anchors' warning, applied narrowly): the run OBSERVED a wrong
 #: value and then ASSERTED a different wrong value of the same kind that
@@ -1264,11 +1316,29 @@ _CORRECTION_HINTS = {
 }
 
 
+def committed_step(diagnosis: dict) -> Optional[int]:
+    """The decisive step a leading cause commits to, or None. A contested diagnosis's step is only where the
+    runs part (a structural fallback), so it is not one. Reports from before the ``committed`` field count a
+    step as committed unless they say no hypothesis leads."""
+    dec = (diagnosis or {}).get("decisive_step") or {}
+    step = dec.get("step")
+    committed = dec.get("committed")
+    if committed is None:   # an older report: contested only when it says no hypothesis leads
+        committed = not ("leading" in (diagnosis or {}) and diagnosis["leading"] is None)
+    return step if isinstance(step, int) and committed else None
+
+
+#: what a contested diagnosis's step rests on: no hypothesis led, so the step is structure, not a verdict
+CONTESTED_BASIS = ("first step with no twin in the passing run — structural fallback; "
+                   "the evidence is contested, so no cause is claimed for it")
+
+
 def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
                    ranked: Optional[list] = None,
                    account: Optional[list] = None,
                    traj: Optional[Trajectory] = None,
-                   side: Optional[str] = None) -> dict:
+                   side: Optional[str] = None,
+                   other: Optional[Trajectory] = None) -> dict:
     """Commit to a decisive error step — or abstain with the reason — and
     say how much of the trace the commitment really covers.
 
@@ -1292,9 +1362,14 @@ def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
     machine-readable ``replay_recipe`` any harness can execute.  When
     the diagnosis is contested, the anchored contenders are listed as
     ``joint_candidates`` instead of being silently dropped: no single
-    step is committed, and the reader sees which steps are in play.
+    cause is committed, and the reader sees which steps are in play.  With
+    the passing run in hand (``other``), a contested diagnosis still names
+    where the runs first part (:func:`first_twinless`), labelled as a
+    structural fallback in ``basis``: the cause stays contested, but the
+    step to replay first is not left blank.  Abstentions (a grader or a
+    harness kill leading) never reach this branch.
     """
-    base = {"step": None, "criterion": DECISIVE_CRITERION, "basis": None,
+    base = {"step": None, "committed": False, "criterion": DECISIVE_CRITERION, "basis": None,
             "reason": None, "point_of_no_return": None, "window": None,
             "verification": None, "replay_recipe": None,
             "joint_candidates": [], "overdetermined": None}
@@ -1310,12 +1385,16 @@ def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
                 candidates.append({"kind": h.get("kind"),
                                    "flag": h.get("flag"), "step": anchor,
                                    "score": h.get("score")})
-        return dict(base,
-                    reason="contested: no hypothesis leads, so no step is "
-                           "committed" + (" — the anchored contenders are "
-                                          "listed as joint candidates"
-                                          if candidates else ""),
-                    joint_candidates=candidates)
+        out = dict(base,
+                   reason="contested: no hypothesis leads, so no cause is "
+                          "committed" + (" — the anchored contenders are "
+                                         "listed as joint candidates"
+                                         if candidates else ""),
+                   joint_candidates=candidates)
+        step = first_twinless(traj, other) if traj is not None and other is not None else None
+        if step is None:
+            return out
+        return _anchored(out, step, step, side, _CORRECTION_HINTS["divergence"], basis=CONTESTED_BASIS)
     kind = leading.get("kind")
     if kind == "grader_or_label":
         return dict(base, reason="no agent error to correct — the correction "
@@ -1328,7 +1407,9 @@ def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
                                  "a harness setting, not an agent step")
     if kind == "divergence":
         step = leading.get("root")
-        basis = "the divergent decision; fused evidence places nothing earlier"
+        basis = ("the same tool called with different arguments, returning a different result"
+                 if leading.get("argument_step") is not None and leading.get("argument_step") == step
+                 else "the divergent decision; fused evidence places nothing earlier")
     elif kind == "wrong_fact_propagation":
         step = leading.get("origin")
         basis = "where the wrong fact entered, per claim provenance"
@@ -1351,17 +1432,22 @@ def _decisive_step(mode: str, leading: Optional[dict], led: Ledger,
         if e.get("step") is not None and e["step"] >= step
         and (answer_idx is None or e["step"] < answer_idx))
     point_of_no_return = on_account[-1] if on_account else step
-    recipe = {
-        "side": side, "step": step,
-        "correction": _CORRECTION_HINTS.get(kind, "correct this step"),
-        "expects": "the outcome flips to success",
-        "replays": "≥3 — agent policies are stochastic; one rollout proves nothing",
-    }
-    return dict(base, step=step, basis=basis,
-                point_of_no_return=point_of_no_return,
+    return _anchored(base, step, point_of_no_return, side, _CORRECTION_HINTS.get(kind, "correct this step"),
+                     committed=True, basis=basis)
+
+
+def _anchored(base: dict, step: int, point_of_no_return: int, side: Optional[str], correction: str,
+              **extra) -> dict:
+    """A decisive step anchored at ``step``: its window up to ``point_of_no_return``, the hypothesized
+    label, and the recipe a harness replays. One shape for a committed step and a contested fallback."""
+    return dict(base, step=step, point_of_no_return=point_of_no_return,
                 window={"earliest": step, "point_of_no_return": point_of_no_return,
                         "steps": point_of_no_return - step + 1},
-                verification=DECISIVE_VERIFICATION, replay_recipe=recipe)
+                verification=DECISIVE_VERIFICATION,
+                replay_recipe={"side": side, "step": step, "correction": correction,
+                               "expects": "the outcome flips to success",
+                               "replays": "≥3 — agent policies are stochastic; one rollout proves nothing"},
+                **extra)
 
 
 # ---------------------------------------------------------------------------
@@ -1534,22 +1620,26 @@ def diagnose(report: dict, a: Trajectory, b: Trajectory) -> dict:
     leading = next((h for h in ranked if h["id"] == leading_id), None)
 
     account_side = leading["agent"] if leading else subject
-    account_traj = (a if account_side == "a" else b) if account_side else None
+    # the run the account is about, and the other run of the pair
+    account_traj, other_traj = ((a, b) if account_side == "a" else (b, a)) if account_side else (None, None)
     account = _causal_account(
         report, leading, account_side, account_traj, led
     ) if mode == "single_failure" else []
 
-    decisive = _decisive_step(
-        mode, leading, led, ranked, account,
-        (a if account_side == "a" else b) if account_side else None,
-        account_side)
+    decisive = _decisive_step(mode, leading, led, ranked, account, account_traj, account_side, other_traj)
 
     if decisive.get("step") is not None and account_side:
-        over = _two_wrong_values(report, account_side,
-                                 a if account_side == "a" else b, decisive["step"])
+        over = _two_wrong_values(report, account_side, account_traj, decisive["step"])
         if over:
             decisive["overdetermined"] = over
             decisive["joint_candidates"] = list(over["candidates"])
+
+    # which steps to replay first: the committed step, where the runs part, the contenders, the account
+    # (agentdiff.conformal); the bench calibrates how many of them cover the decisive step at a stated rate
+    decisive["replay_order"] = []
+    if decisive.get("step") is not None and account_side:
+        decisive["replay_order"] = replay_order(
+            {"decisive_step": decisive, "causal_account": account}, account_traj, other_traj)[:REPLAY_SHOWN]
 
     # evidence added while building the account or the decisive step is
     # classified too (idempotent: items already stamped are skipped)

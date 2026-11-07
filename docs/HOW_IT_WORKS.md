@@ -72,7 +72,11 @@ later sections read earlier ones and never change them.
    evidence ledger; the *decisive step*: the earliest step whose
    correction is expected to flip the outcome; a causal window; a replay
    recipe. `replay` re-executes from that step through a provider and
-   writes the verdict back (`replay-verified` / `replay-refuted`).
+   writes the verdict back (`replay-verified` / `replay-refuted`). Each
+   corrected replay has a control, the same prefix replayed unchanged:
+   a step is verified only when the correction beats the controls by
+   half the replays, because a failure replayed from its prefix does not
+   always fail again.
 5. **Where the time went** (`timing.py`) — every recorded second to
    thinking, a named tool, or the answer; the seconds in steps the
    reading marks wasted counted and named; the slowest steps; a
@@ -99,6 +103,46 @@ paired inference with an exact sign test, output equality
 (`equality.py`), the routing table (`router.py`: Wilson lower bound per
 task family, with *clear* / *overlapping* / *insufficient*), and the
 scorecard (§6).
+
+A task that passed every run is reported as stable, but a few runs leave
+room for a lot. Each task in `reliability` carries an exact (Clopper–Pearson)
+95% interval for its pass rate (`success_rate_exact95`). A task with an
+unbroken record carries the failure rate it could still have
+(`unbroken.other_rate_at_most`): three straight passes leave 63%, six leave
+39%. `unbroken_records` sums this up per agent, with the straight passes it
+takes to rule out a failure rate of 10% (29), 5% (59) or 1% (299). These
+numbers say how much a run of passes proves. They decide nothing.
+
+`run_plan` turns that into runs still to make, per task, for a failure
+rate of 10%. A task with both outcomes is already shown inconsistent and
+needs no more runs to show it. A task with an unbroken record needs 29
+in all, so 26 more after 3. Given a per-task `budget`, a task whose 29 is
+above it is marked as one more runs can only break, never clear. It
+counts runs; it does not pick or stop them.
+
+`rerun_flips` answers the question a diff of two suite runs raises: how
+many task verdicts would change on a rerun with nothing changed? For one
+task the chance is 2p(1 − p). Its unbiased estimate is the share of the
+task's run pairs that disagree, 2c(n − c) / (n(n − 1)). Summed over
+tasks, that gives the expected count. The count's exact distribution is
+a Poisson-binomial, and its 90% range is given only from 10 runs at the
+thinnest task. Below that, the range treats a rate read from a few runs
+as known and falls short: about 73% at 3 runs, 20% at 2, in simulation.
+
+`runs_or_tasks` turns the ICC into a spending plan for an agent's pass
+rate. A task's runs share its difficulty, so they are correlated. With T
+tasks, k runs each and an ICC of ρ, the interval's width goes as
+√((ρ + (1 − ρ)/k) / T). The plan gives:
+- how much the same budget narrows it as more runs of these tasks,
+  against new tasks like them;
+- what share of the new-task gain the runs still buy: all of it at
+  ρ = 0, none at ρ = 1;
+- the effective number of independent runs, T·k / (1 + (k − 1)ρ);
+- the most that endless runs of these tasks could narrow it.
+
+For a fixed budget, new tasks never buy less. Runs of the same tasks are
+still what pass^k and flaky tasks need. The ICC comes from the same
+tasks, so it is rough, and below 20 tasks the plan says so.
 
 ## 4. What the page draws, and how to read it
 

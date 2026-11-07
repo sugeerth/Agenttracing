@@ -186,6 +186,8 @@
     var diag = report && report.diagnosis;
     var dec = diag && diag.decisive_step;
     if (!dec || typeof dec !== "object" || !isNum(dec.step)) return null;
+    // a contested diagnosis names where the runs part, not a cause: nothing is ringed decisive
+    if (dec.committed === false) return null;
     var side = diag.subject === "a" || diag.subject === "b" ? diag.subject : null;
     return { side: side, step: dec.step, window: dec.window || null,
              verification: dec.verification || "hypothesized", criterion: dec.criterion || "" };

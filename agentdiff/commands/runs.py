@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+from ..efficiency import resource_text
 from ..scorecard import load_golden, load_policy
 from ._io import iter_traces, template_from, write_outputs
 from .paths import DEFAULT_TEMPLATE
@@ -71,6 +72,14 @@ def run(args: argparse.Namespace) -> int:
           f"{paired['labels'][0]} minus {paired['labels'][1]} = {paired['diff']}"
           + (f" ± {paired['se']} (95% {paired['ci95']})" if paired['se'] is not None else "")
           + f"; sign test p={paired['sign_test_p']} — {paired['verdict']}")
+    cost = agg.get("cost_per_success_runs") or {}
+    if cost.get("ratio") is not None:
+        print(f"Cost per success over every run ({cost['runs']['a']} A, {cost['runs']['b']} B, {cost['tasks']} tasks): "
+              f"B / A = {cost['ratio']}" + (f" (95% {cost['low']}–{cost['high']}, the task as the cluster)"
+                                            if cost["low"] is not None else f"; {cost['reason']}"))
+    for res in (agg.get("resources_per_run") or {}).values():
+        if res.get("ratio") is not None:
+            print("Per run: " + resource_text(res, {"a": "A", "b": "B"}))
     print(f"Runs: {stability['runs_per_agent']}")
     for entry in stability["per_task"]:
         repro = entry["divergence_reproducibility"]

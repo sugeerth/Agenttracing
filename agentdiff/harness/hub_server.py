@@ -251,11 +251,14 @@ class TraceStreamer:
 
     LIVE = ".live.json"
 
-    def __init__(self, directory, url: str, token: str, *, interval: float = 1.0, poster=None) -> None:
+    def __init__(self, directory, url: str, token: str, *, interval: float = 1.0, poster=None,
+                 seen: Optional[dict] = None) -> None:
         self.dir = Path(directory)
         self.url, self.token, self.interval = url, token, interval
         self.post = poster or send
-        self._seen: dict = {}
+        # what this directory has already sent, file by file: pass the same dict to a later streamer of the
+        # same directory and it posts only what is new
+        self._seen: dict = {} if seen is None else seen
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self.sent = 0

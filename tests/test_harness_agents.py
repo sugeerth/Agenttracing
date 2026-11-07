@@ -593,7 +593,8 @@ class TestReplayCommand(unittest.TestCase):
             tmp = Path(tmp)
             report_path = self._report(tmp)
             turns = _echo_turns(tmp / "flip.json", "The refund for BK1 is $120.00.")
-            out, report = self._replay(report_path, turns, ["--traces", str(tmp / "replays")])
+            # a script that answers right whatever it was told: uncontrolled, the flips are credited
+            out, report = self._replay(report_path, turns, ["--traces", str(tmp / "replays"), "--controls", "0"])
             decisive = report["diagnosis"]["decisive_step"]
             self.assertEqual(decisive["verification"], "replay-verified")
             self.assertEqual(decisive["replay"]["replays"], 3)
@@ -603,6 +604,22 @@ class TestReplayCommand(unittest.TestCase):
             conf = next(l for l in report["verdict_card"]["lines"] if l["key"] == "confidence")
             self.assertIn("replay-verified (3/3 replays flipped the outcome)", conf["text"])
             self.assertEqual(len(list((tmp / "replays").glob("*.json"))), 3)
+            self.assertIn("no control replays ran", out)
+
+    def test_controls_catch_an_outcome_reached_without_the_correction(self):
+        """The same script answers right with or without the correction: the uncorrected controls flip too,
+        so the failure did not reproduce and the correction cannot take the credit."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            report_path = self._report(tmp)
+            turns = _echo_turns(tmp / "flip.json", "The refund for BK1 is $120.00.")
+            out, report = self._replay(report_path, turns)
+            replay = report["diagnosis"]["decisive_step"]["replay"]
+            self.assertEqual(report["diagnosis"]["decisive_step"]["verification"], "replay-mixed")
+            self.assertEqual((replay["flipped"], replay["controls"], replay["control_flipped"]), (3, 3, 3))
+            self.assertIn("without the correction, 3/3 control replay(s) flipped it too", out)
+            conf = next(l for l in report["verdict_card"]["lines"] if l["key"] == "confidence")
+            self.assertIn("3/3 replays flipped the outcome; 3/3 without the correction", conf["text"])
 
     def test_a_model_that_ignores_the_correction_refutes_the_step(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -625,7 +642,7 @@ class TestReplayCommand(unittest.TestCase):
             before = page.read_text(encoding="utf-8")
             self.assertIn('"verification": "hypothesized"', before)
             turns = _echo_turns(tmp / "flip.json", "The refund for BK1 is $120.00.")
-            out, _ = self._replay(report_path, turns)
+            out, _ = self._replay(report_path, turns, ["--controls", "0"])
             self.assertIn("Re-rendered", out)
             after = page.read_text(encoding="utf-8")
             self.assertIn('"verification": "replay-verified"', after)

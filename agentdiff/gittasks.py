@@ -18,6 +18,7 @@ here reaches a network.
 
 from __future__ import annotations
 
+import ast
 import io
 import json
 import os
@@ -31,22 +32,62 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 
-__all__ = ["candidates", "build", "RUNNER", "PROMPT"]
+__all__ = ["candidates", "build", "mutants", "grader_strength", "project_names", "reached_outside",
+           "retrieval_check", "RUNNER", "PROMPT"]
 
 #: what the agent is told, around the commit's own message
 PROMPT = ("In this repository, make the following change:\n\n{message}\n\n"
           "Tests that check this change exist, but they are not given to you.")
-#: the file the check runs: copies the held-out tests over the agent's work, then runs them
+#: the file the check runs: copies the held-out tests over the agent's work, runs them, and holds the run to
+#: the tests that passed when the task was made
 RUNNER = "run_check.py"
-_RUNNER_SOURCE = '''"""Copies held-out tests into the workspace, over whatever is there, then runs the test command."""
+#: how a test runner's output names the tests that passed: pytest's ``-rA`` summary and unittest's ``-v`` lines.
+#: Shared, as source, by the runner (which runs under the project's own Python) and by :func:`build`
+_PASSED_SOURCE = r'''
+import re as _re
+
+_COLOUR = _re.compile(r"\x1b\[[0-9;]*m")
+_PYTEST_PASSED = _re.compile(r"^PASSED (\S+)", _re.M)
+_UNITTEST_OK = _re.compile(r"^(\w+) \(([\w.]+)\)(?:\n.*?)?\s\.\.\. ok$", _re.M)
+
+
+def passed_ids(text):
+    """The tests the output says passed, as a set of ids; empty when it names none. Colour codes are ignored."""
+    text = _COLOUR.sub("", text)
+    ids = set(_PYTEST_PASSED.findall(text))
+    for name, where in _UNITTEST_OK.findall(text):
+        ids.add(where if where.endswith("." + name) else where + "." + name)
+    return ids
+'''
+_RUNNER_SOURCE = '''"""Copies held-out tests into the workspace, over whatever is there, then runs the test command.
+
+With an expectation file (the tests that passed on the commit the task was made from), a run passes only if
+every one of them passed again: a test skipped, deselected or swapped out by the work under test does not
+count as passed, whatever the exit code says."""
+import json
 import shutil
 import subprocess
 import sys
+''' + _PASSED_SOURCE + '''
 
-hidden, cmd = sys.argv[1], sys.argv[3:]
+hidden, expect, cmd = sys.argv[1], sys.argv[2], sys.argv[4:]
 shutil.copytree(hidden, ".", dirs_exist_ok=True)
-sys.exit(subprocess.call(cmd))
+# the two streams apart: unittest reports on stderr, pytest on stdout, and a test that prints mid-line would
+# split a "name ... ok" line if they were merged
+done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+sys.stdout.write(done.stdout)
+sys.stdout.write(done.stderr)
+if done.returncode or expect == "-":
+    sys.exit(done.returncode)
+missing = sorted(set(json.load(open(expect))) - passed_ids(done.stdout) - passed_ids(done.stderr))
+if missing:
+    print(f"held-out tests that passed on the commit did not pass here ({len(missing)}): "
+          + ", ".join(missing[:5]) + (" ..." if len(missing) > 5 else ""))
+    sys.exit(1)
 '''
+_shared: dict = {}
+exec(_PASSED_SOURCE, _shared)
+passed_ids = _shared["passed_ids"]
 _TRAILER = re.compile(r"^(?:co-authored-by|signed-off-by|reviewed-by|change-id|claude-session):.*$", re.I | re.M)
 _TEST = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*\.py$|_test\.(py|go)$|\.(test|spec)\.[jt]sx?$")
 
@@ -99,12 +140,13 @@ def _slug(text: str) -> str:
 
 def _test_command(python: str, tests: List[str], template: Optional[str]) -> List[str]:
     """The given template with ``{files}`` filled in; else pytest on the test files when it is installed for this
-    Python, else unittest, which takes the files as paths too."""
+    Python, else unittest, which takes the files as paths too. Both name each test that passed (pytest ``-rA``,
+    unittest ``-v``), so a run can be held to the tests the commit passed."""
     if template:
         return shlex.split(template.replace("{files}", " ".join(shlex.quote(t) for t in tests)))
     has = subprocess.run([python, "-c", "import pytest"], capture_output=True).returncode == 0
-    return ([python, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests] if has
-            else [python, "-m", "unittest", *tests])
+    return ([python, "-m", "pytest", "-q", "-rA", "--color=no", "-p", "no:cacheprovider", *tests] if has
+            else [python, "-m", "unittest", "-v", *tests])
 
 
 def _run(check: List[str], cwd: Path, timeout: float) -> tuple:
@@ -112,13 +154,300 @@ def _run(check: List[str], cwd: Path, timeout: float) -> tuple:
         done = subprocess.run(check, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return None, "timed out"
-    tail = (done.stdout + done.stderr).strip().splitlines()[-6:]
-    return done.returncode == 0, "\n".join(tail)
+    return done.returncode == 0, done.stdout + done.stderr
+
+
+def _tail(text: str) -> str:
+    return "\n".join(text.strip().splitlines()[-6:])
+
+
+def _disagrees(check: List[str], tree: Path, want: bool, times: int, timeout: float) -> Optional[str]:
+    """Runs ``check`` on a fresh copy of ``tree`` up to ``times`` times, stopping at the first run that does
+    not come out ``want``. None when every run did; else what that run did, as "passed", "failed" or
+    "timed out", after how many that agreed."""
+    for n in range(times):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_in = Path(tmp) / "tree"
+            shutil.copytree(tree, run_in)
+            got, _ = _run(check, run_in, timeout)
+        if got is not want:
+            did = "timed out" if got is None else "passed" if got else "failed"
+            return f"{'passed' if want else 'failed'} {n + 1} time(s), then {did}"
+    return None
+
+
+_SWAP = {ast.Lt: ast.LtE, ast.LtE: ast.Lt, ast.Gt: ast.GtE, ast.GtE: ast.Gt, ast.Eq: ast.NotEq, ast.NotEq: ast.Eq,
+         ast.In: ast.NotIn, ast.NotIn: ast.In, ast.Is: ast.IsNot, ast.IsNot: ast.Is,
+         ast.And: ast.Or, ast.Or: ast.And, ast.Add: ast.Sub, ast.Sub: ast.Add}
+
+
+def _sites(tree: ast.AST, lines: set) -> List[tuple]:
+    """Every place on ``lines`` a mutant can be made, in source order, as (line, column, kind, index)."""
+    out = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", None)
+        if line not in lines:
+            continue
+        col = getattr(node, "col_offset", 0)
+        if isinstance(node, ast.Compare):
+            out += [(line, col, f"{type(op).__name__} → {_SWAP[type(op)].__name__}", ("cmp", node, i))
+                    for i, op in enumerate(node.ops) if type(op) in _SWAP]
+        elif isinstance(node, ast.BoolOp):
+            out.append((line, col, f"{type(node.op).__name__} → {_SWAP[type(node.op)].__name__}", ("bool", node, 0)))
+        elif isinstance(node, ast.BinOp) and type(node.op) in _SWAP:
+            out.append((line, col, f"{type(node.op).__name__} → {_SWAP[type(node.op)].__name__}", ("bin", node, 0)))
+        elif isinstance(node, ast.Constant) and type(node.value) is bool:
+            out.append((line, col, f"{node.value} → {not node.value}", ("bool_const", node, 0)))
+        elif isinstance(node, ast.Constant) and type(node.value) is int:
+            out.append((line, col, f"{node.value} → {node.value + 1}", ("int", node, 0)))
+        elif isinstance(node, (ast.If, ast.While)):
+            out.append((line, col, "condition negated", ("not", node, 0)))
+        elif isinstance(node, ast.Return) and node.value is not None and not (
+                isinstance(node.value, ast.Constant) and node.value.value is None):
+            out.append((line, col, "returns None", ("ret", node, 0)))
+    return sorted(out, key=lambda s: (s[0], s[1], s[2]))
+
+
+def _apply(site: tuple) -> tuple:
+    """Make one mutant in place; returns what undoes it."""
+    kind, node, i = site[3]
+    if kind == "cmp":
+        old = node.ops[i]; node.ops[i] = _SWAP[type(old)](); return (lambda: node.ops.__setitem__(i, old))
+    if kind == "bool":
+        old = node.op; node.op = _SWAP[type(old)](); return (lambda: setattr(node, "op", old))
+    if kind == "bin":
+        old = node.op; node.op = _SWAP[type(old)](); return (lambda: setattr(node, "op", old))
+    if kind == "bool_const":
+        old = node.value; node.value = not old; return (lambda: setattr(node, "value", old))
+    if kind == "int":
+        old = node.value; node.value = old + 1; return (lambda: setattr(node, "value", old))
+    if kind == "not":
+        old = node.test; node.test = ast.UnaryOp(op=ast.Not(), operand=old); return (lambda: setattr(node, "test", old))
+    old = node.value; node.value = ast.Constant(value=None); return (lambda: setattr(node, "value", old))
+
+
+def mutants(source: str, lines: set, limit: Optional[int] = None) -> dict:
+    """Small changes to ``source``, one at a time and only on ``lines``: a comparison flipped (< for <=, ==
+    for !=, in for not in), and for or, + for -, a constant one up, True for False, a condition negated, a
+    return made to return None. Each is the whole file written back by ``ast.unparse``; ``baseline`` is the
+    file written back with no change, which a check must pass first, since rewriting drops comments and
+    layout. With more sites than ``limit``, an evenly spaced, fixed selection. Returns
+    ``{"baseline", "sites", "mutants": [{"line", "change", "source"}]}``; None for a file that does not parse."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    sites = _sites(tree, lines)
+    pick = sites
+    if limit is not None and len(sites) > limit:
+        pick = [sites[round(k * (len(sites) - 1) / max(1, limit - 1))] for k in range(limit)] if limit > 0 else []
+    made = []
+    for site in pick:
+        undo = _apply(site)
+        try:
+            made.append({"line": site[0], "change": site[2], "source": ast.unparse(tree) + "\n"})
+        finally:
+            undo()
+    return {"baseline": ast.unparse(tree) + "\n", "sites": len(sites), "mutants": made}
+
+
+def _changed_lines(repo: Path, parent: str, sha: str, path: str) -> set:
+    """The lines of ``path`` at ``sha`` that the commit added or changed."""
+    out = set()
+    for m in re.finditer(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", _git(repo, "diff", "-U0", parent, sha, "--", path), re.M):
+        start, count = int(m.group(1)), int(m.group(2) if m.group(2) is not None else 1)
+        out.update(range(start, start + count))
+    return out
+
+
+def grader_strength(repo: Path, task: dict, *, limit: int = 20, timeout: float = 300.0) -> dict:
+    """How much of the commit's own change its held-out tests can tell apart. Each mutant is the commit's
+    tree with one small change on a line the commit changed, graded by the task's own check. A mutant the
+    check fails is caught; one it passes is missed, which is a gap in the tests or a change that does
+    nothing (no check here tells the two apart). Counts only: it keeps or drops no task.
+    Returns ``{"tried", "caught", "missed", "no_verdict", "sites", "missed_at", "reason"}``."""
+    repo = Path(repo).resolve()
+    src, check = task["source"], shlex.split(task["check"]) if os.name != "nt" else task["check"]
+    out = {"tried": 0, "caught": 0, "missed": 0, "no_verdict": 0, "sites": 0, "missed_at": [], "files": [], "reason": None}
+    per_file = max(1, limit // max(1, len(src["code"])))
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp) / "commit"
+        _extract(repo, src["commit"], base)
+        for path in src["code"]:
+            file = base / path
+            if not file.exists():
+                continue
+            made = mutants(file.read_text(encoding="utf-8", errors="replace"),
+                           _changed_lines(repo, src["parent"], src["commit"], path), per_file)
+            if made is None:
+                out["files"].append({"file": path, "reason": "does not parse"})
+                continue
+            out["sites"] += made["sites"]
+            if not made["mutants"]:
+                out["files"].append({"file": path, "reason": "no site to change on the lines the commit changed"})
+                continue
+            original = file.read_text(encoding="utf-8", errors="replace")
+            file.write_text(made["baseline"], encoding="utf-8")
+            ok, _ = _run(check, base, timeout)
+            if ok is not True:
+                file.write_text(original, encoding="utf-8")
+                out["files"].append({"file": path, "reason": "the check fails on the file rewritten without a change"})
+                continue
+            for m in made["mutants"]:
+                file.write_text(m["source"], encoding="utf-8")
+                got, _ = _run(check, base, timeout)
+                out["tried"] += 1
+                if got is None:
+                    out["no_verdict"] += 1
+                elif got:
+                    out["missed"] += 1
+                    out["missed_at"].append({"file": path, "line": m["line"], "change": m["change"]})
+                else:
+                    out["caught"] += 1
+            file.write_text(original, encoding="utf-8")
+            out["files"].append({"file": path, "tried": len(made["mutants"]), "reason": None})
+    if not out["tried"]:
+        out["reason"] = "no mutant could be graded"
+    return out
+
+
+def _norm_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name.strip().lower())
+
+
+def project_names(repo_name: str, workspace=None) -> List[str]:
+    """What a project goes by: its repository's name and its top-level Python packages (a directory with an
+    ``__init__.py`` at the root of the workspace or under ``src/``), normalised as package indexes do."""
+    names = {_norm_name(repo_name)}
+    if workspace:
+        ws = Path(workspace)
+        for base in (ws, ws / "src"):
+            if base.is_dir():
+                names.update(_norm_name(d.name) for d in base.iterdir() if d.is_dir() and (d / "__init__.py").is_file()
+                             and not d.name.startswith((".", "_")) and not _is_test(d.name + "/"))
+    return sorted(n for n in names if len(n) >= 3)
+
+
+_SPLIT = re.compile(r"\s*(?:;|&&|\|\||\||\n)\s*")
+_REQ = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def _segments(command: str) -> List[List[str]]:
+    out = []
+    for part in _SPLIT.split(command or ""):
+        try:
+            toks = shlex.split(part, posix=True)
+        except ValueError:
+            toks = part.split()
+        while toks and ("=" in toks[0] and not toks[0].startswith("-") or toks[0] in ("sudo", "env", "time", "command")):
+            toks = toks[1:]
+        if toks:
+            out.append(toks)
+    return out
+
+
+def _installed(text: str, names: List[str]) -> bool:
+    low = text.lower().replace("_", "-")
+    return any(re.search(rf"(site|dist)-packages/{re.escape(n)}(\b|/|-)", low) for n in names)
+
+
+def _tool_input(value) -> dict:
+    """A tool call's input as a dict: traces keep it as JSON text (or, from some converters, a Python literal)."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.lstrip().startswith("{"):
+        for parse in (json.loads, ast.literal_eval):
+            try:
+                got = parse(value)
+            except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+                continue
+            if isinstance(got, dict):
+                return got
+    return {}
+
+
+def reached_outside(trajectory, names: List[str]) -> List[dict]:
+    """The steps of a run on a task from a repository's history that reached outside its workspace for the
+    project's own code: git talking to a remote (the workspace carries no ``.git``), a package index asked for
+    the project, a URL or web search that names it, or a path into an installed copy of it. Any of these can
+    hand the agent the change it was asked to make. Read from the tool calls the trace records, by rule; a run
+    whose tools the trace does not record cannot be checked. Returns ``[{"step", "kind", "evidence"}]``."""
+    names = [_norm_name(n) for n in names if n]
+    found = []
+
+    def hit(step, kind, evidence):
+        found.append({"step": step.index, "kind": kind, "evidence": str(evidence)[:200]})
+
+    def names_project(text: str) -> bool:
+        low = _norm_name(str(text))
+        return any(n in low for n in names)
+
+    for step in trajectory.steps:
+        inp, raw = _tool_input(step.input), step.input if isinstance(step.input, str) else ""
+        tool = (step.name or "").lower()
+        if tool in ("webfetch", "web_fetch", "fetch") and names_project(inp.get("url") or raw):
+            hit(step, "fetched a URL that names the project", inp.get("url") or raw)
+            continue
+        if tool in ("websearch", "web_search") and names_project(inp.get("query") or raw):
+            hit(step, "searched the web for the project", inp.get("query") or raw)
+            continue
+        for key in ("file_path", "path", "pattern", "notebook_path"):
+            val = inp.get(key)
+            if isinstance(val, str) and _installed(val, names):
+                hit(step, "read an installed copy of the project", val)
+        command = inp.get("command") if isinstance(inp.get("command"), str) else (raw if tool in ("bash", "shell") else "")
+        if not command:
+            continue
+        for toks in _segments(command):
+            head = os.path.basename(toks[0]).lower()
+            rest = toks[1:]
+            if head in ("python", "python3") and rest[:2] == ["-m", "pip"]:
+                head, rest = "pip", rest[2:]
+            if head == "git" and rest:
+                sub = [t for t in rest if not t.startswith("-")]
+                if sub[:1] and sub[0] in ("clone", "fetch", "pull", "ls-remote") or sub[:2] == ["remote", "add"]:
+                    hit(step, "used git over the network", " ".join(toks))
+            elif head in ("pip", "pip3") and rest and rest[0] in ("install", "download", "show"):
+                for t in rest[1:]:
+                    m = _REQ.match(t)
+                    if not t.startswith("-") and m and not t.startswith((".", "/")) and _norm_name(m.group(1)) in names:
+                        hit(step, "asked a package index for the project", " ".join(toks))
+                        break
+            if any(t.startswith(("http://", "https://")) and names_project(t) for t in toks):
+                hit(step, "fetched a URL that names the project", " ".join(toks))
+            if any(_installed(t, names) for t in toks):
+                hit(step, "read an installed copy of the project", " ".join(toks))
+    return found
+
+
+def retrieval_check(trajectories, names: List[str]) -> dict:
+    """:func:`reached_outside` over runs: how many of them reached outside the workspace for the project, and
+    where. Reported, never used to change a verdict: a run that found the fix still passed or failed its tests."""
+    runs = list(trajectories)
+    per_run = []
+    for t in runs:
+        steps = reached_outside(t, names)
+        if steps:
+            per_run.append({"run": t.run_id or t.trace_id, "task": t.task.id, "steps": steps})
+    kinds = {}
+    for r in per_run:
+        for s in r["steps"]:
+            kinds[s["kind"]] = kinds.get(s["kind"], 0) + 1
+    says = (f"{len(per_run)} of {len(runs)} run(s) reached outside the workspace for the project's own code"
+            + (": " + "; ".join(f"{k} ({v})" for k, v in sorted(kinds.items())) if kinds else "")
+            if runs else "no runs to check")
+    return {"runs": len(runs), "flagged": len(per_run), "names": names, "kinds": kinds, "per_run": per_run, "says": says}
 
 
 def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: Optional[str] = None,
-          timeout: float = 300.0, python: Optional[str] = None, on_progress=None) -> dict:
+          timeout: float = 300.0, python: Optional[str] = None, on_progress=None, checks: int = 3,
+          mutant_limit: int = 0) -> dict:
     """Up to ``want`` tasks from ``repo``'s history, each validated, written under ``dest`` with a tasks.json.
+    A grader is checked ``checks`` times on the parent and on the commit, each run on a fresh copy: a task
+    whose tests do not fail on the parent every time and pass on the commit every time is flaky, and left
+    out, since a flaky grader would pass or fail the agent's runs by chance. With ``mutant_limit`` above 0,
+    each kept task also carries ``grader``, from :func:`grader_strength`: how many small changes to the
+    commit's own lines its tests catch. It is reported, and keeps or drops no task.
     Returns ``{"tasks": path or None, "kept": [...], "skipped": [{"sha", "subject", "why"}]}``."""
     say = on_progress or (lambda s: None)
     repo, dest = Path(repo).resolve(), Path(dest).resolve()
@@ -141,22 +470,41 @@ def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: O
             target = hidden / t
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(_git(repo, "show", f"{c['sha']}:{t}", binary=True))
-        check = [python, str(dest / RUNNER), str(hidden), "--", *_test_command(python, c["tests"], test_cmd)]
+        command = _test_command(python, c["tests"], test_cmd)
+        check = [python, str(dest / RUNNER), str(hidden), "-", "--", *command]
         work = dest / "tasks" / tid
         _extract(repo, c["parent"], work)
         say(f"{tid}: checking its grader on the parent and on the commit")
+        expected: List[str] = []
         with tempfile.TemporaryDirectory() as tmp:
-            on_parent = Path(tmp) / "parent"
-            shutil.copytree(work, on_parent)
-            before, before_out = _run(check, on_parent, timeout)
             on_commit = Path(tmp) / "commit"
             _extract(repo, c["sha"], on_commit)
             after, after_out = _run(check, on_commit, timeout)
-        why = None
-        if after is not True:
-            why = "its tests do not pass on the commit itself" + (f": {after_out}" if after_out else "")
-        elif before is not False:
-            why = "its tests already pass on the parent: nothing to do"
+            if after:
+                # the tests the commit passes, by name: a run passes only if each passes again, so work that
+                # skips, deselects or swaps them out (a conftest.py, a patched runner) does not pass
+                expected = sorted(passed_ids(after_out or ""))
+                if expected:
+                    expect = dest / "expect" / f"{tid}.json"
+                    expect.parent.mkdir(parents=True, exist_ok=True)
+                    expect.write_text(json.dumps(expected, indent=1) + "\n", encoding="utf-8")
+                    check = [python, str(dest / RUNNER), str(hidden), str(expect), "--", *command]
+            on_parent = Path(tmp) / "parent"
+            shutil.copytree(work, on_parent)
+            before, _ = _run(check, on_parent, timeout)
+            why = None
+            if after is not True:
+                why = ("its tests do not pass on the commit itself"
+                       + (f": {_tail(after_out)}" if after_out else ""))
+            elif before is not False:
+                why = "its tests already pass on the parent: nothing to do"
+            elif checks > 1:
+                # once each was the first look; the rest must agree with it, run for run
+                for tree, want, where in ((work, False, "parent"), (on_commit, True, "commit")):
+                    odd = _disagrees(check, tree, want, checks - 1, timeout)
+                    if odd:
+                        why = f"a flaky grader: on the {where} its tests {odd}"
+                        break
         if why:
             shutil.rmtree(work, ignore_errors=True)
             shutil.rmtree(hidden, ignore_errors=True)
@@ -164,10 +512,17 @@ def build(repo: Path, dest: Path, *, want: int = 6, look: int = 200, test_cmd: O
             say(f"{tid}: skipped, {why.splitlines()[0]}")
             continue
         kept.append({"id": tid, "workspace": f"tasks/{tid}", "prompt": PROMPT.format(message=c["message"]),
+                     "checked": max(1, checks), "held_to": len(expected),
                      "check": subprocess.list2cmdline(check) if os.name == "nt" else shlex.join(check),
                      "source": {"repo": str(repo), "commit": c["sha"], "parent": c["parent"],
                                 "tests": c["tests"], "code": c["code"]}})
-        say(f"{tid}: kept: fails on the parent, passes on the commit")
+        say(f"{tid}: kept: fails on the parent, passes on the commit"
+            + (f", {checks} times each" if checks > 1 else ""))
+        if mutant_limit > 0:
+            g = grader_strength(repo, kept[-1], limit=mutant_limit, timeout=timeout)
+            kept[-1]["grader"] = g
+            say(f"{tid}: its tests caught {g['caught']} of {g['tried']} small change(s) to the commit's own lines"
+                + (f"; missed {g['missed']}" if g["missed"] else "") + (f" ({g['reason']})" if g["reason"] else ""))
     path = None
     if kept:
         path = dest / "tasks.json"
