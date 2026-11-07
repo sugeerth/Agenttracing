@@ -69,6 +69,32 @@ class BuildSiteTest(unittest.TestCase):
         self.assertEqual(got.returncode, 0, got.stderr[-2000:])
         self.assertEqual(json.loads(got.stdout), {"harness v0": [21, 0.8667], "harness v1": [21, 1.0]})
 
+    def test_the_evidence_page_carries_its_data_and_sources(self):
+        import re
+        page = (self.site / "evidence/index.html").read_text(encoding="utf-8")
+        self.assertNotIn("/*EVIDENCE*/", page)
+        data = json.loads(re.search(r'<script id="evidence-data" type="application/json">(.*?)</script>', page, re.S).group(1))
+        self.assertEqual(data["totals"]["evolutions"], len(data["evolutions"]))
+        self.assertEqual(data["totals"]["runs"], sum(e["runs"] for e in data["evolutions"]))
+        for key in ("evolutions", "checks", "research_log", "grader_strength", "hard_six", "bounds", "coverage"):
+            self.assertIn(key, data["sources"], key)
+        ranges = {(r["when"], r["phase"]): (r["passed"], r["runs"]) for r in data["hard_six"] if r["task"] == "ranges"}
+        self.assertEqual(ranges, {("before", "first runs"): (2, 3), ("before", "run again"): (2, 3),
+                                  ("after", "first runs"): (3, 3), ("after", "run again"): (3, 3)})
+        self.assertEqual({r["straight_passes"] for r in data["rule_out"] if r["failure_rate"] == 0.1}, {29})
+        self.assertIn("synthetic", data["sources"]["coverage"])
+        self.assertIn("../evidence/", (self.site / "try/index.html").read_text(encoding="utf-8"))
+
+    def test_a_coverage_point_reruns_alone(self):
+        """Each simulated point is seeded by its own settings, so one can be checked without the rest."""
+        sys.path.insert(0, str(ROOT / "web"))
+        from evidence import COVERAGE_DRAWS, coverage_point, MIXES
+        page = (self.site / "evidence/index.html").read_text(encoding="utf-8")
+        import re
+        points = json.loads(re.search(r'<script id="evidence-data" type="application/json">(.*?)</script>', page, re.S).group(1))["coverage"]["points"]
+        shown = [p["coverage"] for p in points if p["mix"] == MIXES[1] and p["runs"] == 10][0]
+        self.assertEqual(coverage_point(1, 10, COVERAGE_DRAWS), shown)
+
     def test_the_playground_names_its_runtime_exactly(self):
         page = (self.site / "try/index.html").read_text(encoding="utf-8")
         self.assertIn("https://cdn.jsdelivr.net/npm/pyodide@0.29.5/pyodide.js", page)

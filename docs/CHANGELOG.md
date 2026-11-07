@@ -5,6 +5,29 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The website gains /agentdiff/evidence/: what AgentDiff has measured
+
+`web/evidence.html` and `web/evidence.py`, written by `web/build_site.py`
+beside the repeatability dashboard. The data goes into the page, so no
+script fetches anything. It has five sections:
+- **How a harness changed itself.** The 8 recorded evolutions: 278 real
+  runs, $3.78 where logged, 8 changes tried, 4 kept, 3 held on re-runs.
+  Every tested change is shown before and after, and the hard six
+  tasks run by run.
+- **Where its own numbers were wrong.** Seven audits. For each, what the
+  number was, what it is now, and its target.
+- **How strong the graders are.** The grader-strength run on this
+  repository's own commits.
+- **How many runs it takes.** The exact bound a run of straight passes
+  leaves, the passes needed to rule out a rate, and the rerun-flip
+  range's coverage. That simulation is seeded per point, so one point
+  can be rerun alone, and it is labelled synthetic.
+- **The research log**, searchable.
+
+Each figure names its source: recorded runs, exact arithmetic, or a
+labelled simulation. The site audit (`site_eval`) gives the page 21/21
+in all three modes. The dashboard's footer links to it.
+
 ## Whether a from-git run reached outside its workspace for the fix
 
 `gittasks.reached_outside`, `retrieval_check` and `project_names`. Every

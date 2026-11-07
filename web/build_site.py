@@ -13,6 +13,9 @@ writes, under ``OUT/agentdiff/``:
   synthetic in the manifest: one real agent under two harness versions (the recorded self-evolve example, its
   confirmation runs included), one real agent under two names (``demo/vendors/aa-suite``), and two simulated
   agents (``demo/runs``). Model names in the copies are replaced by "withheld".
+- ``evidence/index.html``: what AgentDiff has measured (``web/evidence.html``), with its data from
+  ``web/evidence.py`` written into the page: recorded evolutions, the numbers found wrong, grader strength,
+  exact bounds and a labelled simulation. No script fetches anything.
 
 No model identifier may appear in a file this writes: it fails if one does, after removing the one docstring
 example the package carries and the model fields of the sample runs. Standard library only.
@@ -106,7 +109,14 @@ def build(out: Path) -> dict:
     """Write the site under ``out/agentdiff/``; returns {path: bytes written}."""
     site = out / "agentdiff"
     manifest, sample_files = samples()
+    sys.path.insert(0, str(ROOT / "web"))
+    from evidence import evidence
+    data = json.dumps(evidence(), separators=(",", ":")).replace("</", "<\\/")
+    page = (ROOT / "web" / "evidence.html").read_text(encoding="utf-8")
+    if page.count("/*EVIDENCE*/") != 1:
+        raise SystemExit("web/evidence.html must hold the data placeholder exactly once")
     written = {
+        "evidence/index.html": page.replace("/*EVIDENCE*/", data).encode("utf-8"),
         "try/index.html": (ROOT / "web" / "try.html").read_bytes(),
         "try/engine.zip": engine_zip(),
         "try/samples.json": (json.dumps(manifest, indent=1) + "\n").encode("utf-8"),
@@ -131,8 +141,9 @@ def main(argv=None) -> int:
         print(__doc__.split("\n\n")[1], file=sys.stderr)
         return 2
     out = Path(args[0])
-    if (out / "agentdiff" / "try").exists():
-        shutil.rmtree(out / "agentdiff" / "try")
+    for part in ("try", "evidence"):
+        if (out / "agentdiff" / part).exists():
+            shutil.rmtree(out / "agentdiff" / part)
     written = build(out)
     for name, data in sorted(written.items()):
         if not name.startswith("try/samples/"):
