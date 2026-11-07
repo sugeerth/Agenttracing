@@ -544,6 +544,51 @@ def rerun_flips(per_task: list, coverage: float = FLIP_RANGE) -> dict:
     return out
 
 
+#: below this many tasks the plan says its ICC is rough (measured: see runs_or_tasks)
+ROUGH_ICC_TASKS = 20
+
+
+def runs_or_tasks(icc: Optional[float], tasks: int, runs_per_task: float, budget: Optional[float] = None) -> dict:
+    """What the next runs buy for an agent's pass rate: more runs on the same tasks, or new tasks.
+
+    A task's runs share its difficulty, so they are correlated (the ICC, ``icc``). For an agent's mean pass rate
+    over ``tasks`` tasks with ``runs_per_task`` runs each, the interval's width is proportional to
+    sqrt((icc + (1 - icc) / k) / T). Spending ``budget`` more runs (default: as many again as now) on more runs
+    per task shrinks only the second term; spending them on new tasks, drawn like the ones there, shrinks the
+    whole, so for a fixed budget new tasks never buy less; ``runs_share_of_tasks_gain`` says how much of their
+    gain more runs of these tasks still buy (all of it when the ICC is 0, none of it at 1). Also given: the effective number of independent runs, T·k / (1 + (k - 1)·icc), and the narrowest the
+    interval can get with endless runs on these tasks. The ICC here comes from the same few tasks, so it is
+    itself uncertain; the figures are a plan, and decide nothing."""
+    out = {"icc": icc, "tasks": tasks, "runs_per_task": runs_per_task, "budget": budget, "more_runs": None,
+           "more_tasks": None, "runs_share_of_tasks_gain": None, "effective_runs": None, "floor_with_endless_runs": None,
+           "basis": "width proportional to sqrt((icc + (1 - icc)/k) / T); the ICC is estimated from these tasks",
+           "says": None}
+    if icc is None or tasks < 2 or not runs_per_task:
+        out["says"] = "no plan: the ICC could not be estimated from these runs"
+        return out
+    rho, k, t = min(1.0, max(0.0, float(icc))), float(runs_per_task), float(tasks)
+    budget = float(budget) if budget is not None else t * k
+    width = lambda tt, kk: math.sqrt((rho + (1 - rho) / kk) / tt)
+    now = width(t, k)
+    more_runs = width(t, k + budget / t) / now
+    more_tasks = width(t + budget / k, k) / now
+    floor = math.sqrt(rho / (rho + (1 - rho) / k)) if rho > 0 else 0.0
+    out.update(budget=round(budget, 2), more_runs=round(1 - more_runs, 4), more_tasks=round(1 - more_tasks, 4),
+               effective_runs=round(t * k / (1 + (k - 1) * rho), 2), floor_with_endless_runs=round(1 - floor, 4))
+    out["runs_share_of_tasks_gain"] = round((1 - more_runs) / (1 - more_tasks), 4) if more_tasks < 1 else None
+    out["says"] = (f"{budget:.0f} more run(s) narrow the pass-rate interval by {1 - more_runs:.0%} as more runs of these "
+                   f"{tasks} task(s), against {1 - more_tasks:.0%} as new tasks like them, so runs of these tasks buy "
+                   f"{out['runs_share_of_tasks_gain']:.0%} of what new tasks would. With an ICC of {rho:.2f}, the "
+                   f"{t * k:.0f} run(s) here count as {out['effective_runs']:.1f} independent ones, and endless runs of "
+                   f"these tasks could narrow it by at most {1 - floor:.0%}. (For pass^k and flaky tasks, more runs "
+                   f"of the same tasks are what is needed.)")
+    out["rough"] = tasks < ROUGH_ICC_TASKS
+    if out["rough"]:
+        out["says"] += (f" The ICC from {tasks} task(s) is rough: in simulation, a pilot of 6 tasks misjudged this share "
+                        f"by 0.11 to 0.32 typically, and one of 20 tasks by 0.02 to 0.21.")
+    return out
+
+
 def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values)
 
@@ -815,6 +860,8 @@ def _agent_reliability(name: str,
         "unbroken_records": unbroken_records(per_task),
         "run_plan": run_plan(per_task),
         "rerun_flips": rerun_flips(per_task),
+        "runs_or_tasks": runs_or_tasks(icc_block.get("icc1"), len(scored_tasks),
+                                       (runs_used / len(scored_tasks)) if scored_tasks else 0),
         "per_task": per_task,
     }
     result["narrative"] = _agent_narrative(result)

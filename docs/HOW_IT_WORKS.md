@@ -129,6 +129,21 @@ a Poisson-binomial, and its 90% range is given only from 10 runs at the
 thinnest task. Below that, the range treats a rate read from a few runs
 as known and falls short: about 73% at 3 runs, 20% at 2, in simulation.
 
+`runs_or_tasks` turns the ICC into a spending plan for an agent's pass
+rate. A task's runs share its difficulty, so they are correlated. With T
+tasks, k runs each and an ICC of ρ, the interval's width goes as
+√((ρ + (1 − ρ)/k) / T). The plan gives:
+- how much the same budget narrows it as more runs of these tasks,
+  against new tasks like them;
+- what share of the new-task gain the runs still buy: all of it at
+  ρ = 0, none at ρ = 1;
+- the effective number of independent runs, T·k / (1 + (k − 1)ρ);
+- the most that endless runs of these tasks could narrow it.
+
+For a fixed budget, new tasks never buy less. Runs of the same tasks are
+still what pass^k and flaky tasks need. The ICC comes from the same
+tasks, so it is rough, and below 20 tasks the plan says so.
+
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)

@@ -5,6 +5,33 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## What more runs buy against new tasks
+
+`reliability.runs_or_tasks`, carried by each agent as `runs_or_tasks`, and
+a line in each agent's tile on the web dashboard. From the agent's ICC,
+it shows how much the same budget narrows the pass-rate interval as more
+runs of these tasks against new tasks. The budget defaults to as many
+runs again. It also gives the share of the new-task gain that runs still
+buy, the effective number of independent runs, and the most endless runs
+could do. Plan figures only; it decides nothing.
+
+Measured (synthetic, seeded):
+- **The formula against simulation**, doubling from 6 tasks × 3 runs:
+  within 2 points of the simulated narrowing at every ICC from 0.05 to
+  0.95.
+- **Estimating the share from a small pilot is rough.**
+  - With 6 tasks × 3 runs, the pilot's estimate of the runs' share was
+    off by 0.11–0.32 typically (median), and by up to 0.89 at the 90th
+    percentile.
+  - With 20 tasks × 5 runs, the median error was 0.02–0.21.
+  - Below 20 tasks the plan says its ICC is rough.
+
+On the recorded suites:
+- **Harness v0** (ICC 0.02): 21 more runs narrow the interval by 27% as
+  runs, against 29% as tasks. The runs buy 92% of the task gain.
+- **A/A suite** (ICC 1.00): runs buy nothing (0%). Six tasks are six
+  independent runs, however often they repeat.
+
 ## The website gains /agentdiff/evidence/: what AgentDiff has measured
 
 `web/evidence.html` and `web/evidence.py`, written by `web/build_site.py`

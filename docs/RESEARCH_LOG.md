@@ -4,6 +4,48 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-07
+
+**How it was read.** Through search-engine extracts.
+
+**Read:**
+- *Stochasticity in Agentic Evaluations* (arXiv 2512.06710), again, and
+  practitioner notes on the design effect. A task's runs are a cluster.
+  The effective sample is T·k / (1 + (k − 1)ρ).
+- *Resolution Diagnostics for Paired LLM Evaluation* and *Engineering
+  Reliable Coding Agents*, again: pair by task, and average the runs
+  within a task first.
+- *Recursive Self-Evolving Agents via Held-Out Selection* (arXiv
+  2606.28374). Without a held-out gate: 100% in-sample, 66.7% on test.
+- *GDPevo* (arXiv 2608.03764), *EvoAgentBench* (arXiv 2607.05202) and
+  *EvoPathBench*. Self-evolution judged on held-out tasks, and selection
+  as the weak link.
+- OpenTelemetry GenAI conventions (v1.41 and v1.42 notes). Tool spans
+  carry the tool's name, and `invoke_agent` is split into CLIENT and
+  INTERNAL spans.
+
+**Taken: what more runs buy against new tasks.** AgentDiff reported the
+ICC but never what it means for the next runs. The design effect says
+it: with an ICC near 1, more runs of the same tasks add nothing to the
+pass rate's precision.
+- Built: `reliability.runs_or_tasks`, and a line on the dashboard.
+- Measured:
+  - The formula is within 2 points of simulation.
+  - A plan from a small pilot is rough: off by 0.11–0.32 typically at 6
+    tasks, so it says so below 20.
+  - On the recorded A/A suite, more runs buy 0% of what new tasks would.
+    On harness v0 they buy 92%.
+- A correction on the way: the first version said which option "buys
+  more". For a fixed budget, new tasks never buy less, so that sentence
+  said nothing. It now gives the share.
+
+**Not taken, and why:**
+- **Held-out selection** (RSEA). `--holdout` already tests the evolved
+  harness on tasks it never saw, and is already built.
+- **Collapsing the CLIENT/INTERNAL agent-span pair.** The spec now
+  documents the split. But the fix waits, as on 2026-10-31, for a trace
+  written by a real instrumented agent; none is at hand.
+
 ## 2026-11-06
 
 **How it was read.** Through search-engine extracts.
