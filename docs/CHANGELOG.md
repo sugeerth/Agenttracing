@@ -5,6 +5,29 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## What a recovery cost
+
+`process.recovery` used to count recoveries. Now it also says what each
+one cost.
+- Each recovered error carries `cost`: the steps, tool steps, tokens and
+  seconds from the failing call up to and including the one that worked.
+- The run carries `recovery_cost`:
+  - the recovered count;
+  - the median tool steps to recover;
+  - the total tokens and seconds spent recovering;
+  - their share of the run's own.
+- A cost is never more than the recovery window (5 tool steps), since
+  that is where recovery is judged.
+
+Measured on the recorded python-slugify runs (212 real runs):
+- 328 errors in 142 runs, and 264 of them recovered.
+- Steps to recover: 1 tool step for 161 of them, a median of 1, and 5 at
+  most (the window).
+- Among runs with an error, passing runs spent a median 20.2% of their
+  time recovering (84 runs), and failing runs 10.5% (58). This is a
+  correlation over one project's runs: a failing run more often stops
+  trying than recovers.
+
 ## What more runs buy against new tasks
 
 `reliability.runs_or_tasks`, carried by each agent as `runs_or_tasks`, and

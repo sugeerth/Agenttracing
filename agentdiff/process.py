@@ -570,6 +570,12 @@ def recovery(trajectory: Trajectory) -> dict:
             recovered += 1
             record["outcome"] = "recovered"
             record["recovered_at"] = fixed.index
+            # what getting there cost: every step after the failing one, up to and including the call that worked
+            spent = [s for s in trajectory.steps if step.index < s.index <= fixed.index]
+            record["cost"] = {"steps": len(spent),
+                              "tool_steps": sum(1 for s in spent if s.type in TOOLISH_TYPES),
+                              "tokens": sum(int(s.tokens or 0) for s in spent),
+                              "seconds": round(sum(float(s.latency_s or 0.0) for s in spent), 3)}
         elif following is None:
             abandoned += 1
             record["outcome"] = "abandoned"
@@ -582,9 +588,27 @@ def recovery(trajectory: Trajectory) -> dict:
             record["outcome"] = "repeated the failing call"
         errors.append(record)
 
+    costs = [e["cost"] for e in errors if "cost" in e]
+    run_tokens = sum(int(s.tokens or 0) for s in trajectory.steps)
+    run_seconds = sum(float(s.latency_s or 0.0) for s in trajectory.steps)
+    spent_tokens = sum(c["tokens"] for c in costs)
+    spent_seconds = sum(c["seconds"] for c in costs)
+    tool_steps_each = sorted(c["tool_steps"] for c in costs)
+    recovery_cost = {
+        "recovered": len(costs),
+        "median_tool_steps": (tool_steps_each[len(tool_steps_each) // 2] if len(tool_steps_each) % 2
+                              else (tool_steps_each[len(tool_steps_each) // 2 - 1] + tool_steps_each[len(tool_steps_each) // 2]) / 2)
+        if costs else None,
+        "tokens": spent_tokens, "seconds": round(spent_seconds, 3),
+        "share_of_tokens": round(spent_tokens / run_tokens, 4) if run_tokens else None,
+        "share_of_seconds": round(spent_seconds / run_seconds, 4) if run_seconds else None,
+        "basis": "per recovered error, the steps after it up to and including the call that worked; shares are of "
+                 "the run's own step tokens and seconds, and None where the trace logs none",
+    }
     return {
         "errors": len(errors),
         "error_steps": errors,
+        "recovery_cost": recovery_cost,
         "recovery_attempts": attempts,
         "recovered": recovered,
         "abandoned_after_error": abandoned,

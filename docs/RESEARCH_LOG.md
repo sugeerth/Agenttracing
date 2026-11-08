@@ -4,6 +4,49 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-08
+
+**How it was read.** Through search-engine extracts.
+
+**Read:**
+- *When Tools Fail* (ToolMaze, arXiv 2606.05806). Recovery from injected
+  tool failures, explicit and implicit, transient and permanent, scored
+  as a recovery rate and a recovery cost. The recovery rate drops by
+  about 37% when a tool returns corrupted output.
+- *Self-Healing Agentic Orchestrators* (arXiv 2606.01416): 94.0% against
+  85.3% for retry-only, with one recovery attempt.
+- *ToolMisuseBench* (arXiv 2604.01508). Deterministic, replayable fault
+  injection under step, call and retry budgets.
+- Anytime-valid release for generate-verify systems (an e-process over
+  calibrated scores), AV-AIVAT (variance reduction with valid stopping,
+  74× cheaper in poker), and *LLM-based A/B testing* (arXiv 2606.17165).
+- Tasks from repository changes: *Change2Task* (arXiv 2607.28591; 79.6%
+  verified construction, and tasks re-anchored on newer revisions),
+  *SWE-Bench++* (arXiv 2512.17419), *FeatureBench* (arXiv 2602.10975)
+  and *SWE-Future*.
+
+**Taken: what a recovery cost.** AgentDiff counted recoveries (same tool,
+working, within 5 tool steps) but not what they cost, which is
+ToolMaze's second measure.
+- Built: per-error `cost`, and a run's `recovery_cost` in
+  `process.recovery`.
+- Measured on 212 recorded real runs: 264 recovered errors, a median of 1
+  tool step each. Passing runs spent 20.2% of their time recovering,
+  failing runs 10.5%.
+
+**Not taken, and why:**
+- **Injecting tool faults** (ToolMaze, ToolMisuseBench). It needs a
+  harness that can corrupt a tool's answer mid-run. AgentDiff's
+  `replay` serves recorded prefixes, not faults, and live runs cost
+  money for a measure the recorded errors already give.
+- **Anytime-valid tests** (the e-process release, AV-AIVAT). Rejected on
+  2026-10-16, and nothing here changes the reason: AgentDiff's
+  keep-or-revert rule is exact, and stopping early already loses
+  nothing (`could_keep`).
+- **Re-anchoring a commit's task on a newer revision** (Change2Task).
+  The newer revision carries later work, which is the leak the
+  time-consistent benchmark warns about (2026-11-06).
+
 ## 2026-11-07
 
 **How it was read.** Through search-engine extracts.
