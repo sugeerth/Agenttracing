@@ -496,6 +496,29 @@ def _tokens(runs: list) -> Optional[float]:
     return float(vals[len(vals) // 2])
 
 
+def _trajectories_by_task(runs: list) -> Dict[str, list]:
+    out: Dict[str, list] = {}
+    for t in runs:
+        traj = t if isinstance(t, Trajectory) else Trajectory.from_dict(t)
+        out.setdefault(traj.task.id, []).append(traj)
+    return out
+
+
+def change_cost(base: list, cand: list) -> dict:
+    """What a change costs a run, paired by task: tokens, seconds and steps, the changed harness over the one it
+    replaces, each with the exact sign-flip test over the tasks (``efficiency.resource_ratio_over_runs``). A
+    pooled median says how much; this says whether the tasks show it. Reported beside the verdict, never
+    deciding it."""
+    from .efficiency import resources_per_run
+    try:
+        a, b = _trajectories_by_task(base), _trajectories_by_task(cand)
+    except (KeyError, TypeError, ValueError):
+        return {}
+    both = {t: {"a": a[t], "b": b[t]} for t in sorted(set(a) & set(b))}
+    return {name: {k: r[k] for k in ("ratio", "low", "high", "p", "tasks", "reason")}
+            for name, r in resources_per_run(both).items()}
+
+
 def decide(base: list, cand: list) -> dict:
     """Keep or revert a changed harness, on the same tasks, run for run.
 
@@ -535,6 +558,7 @@ def decide(base: list, cand: list) -> dict:
             "resolution": resolution(len(tasks), len(wins) + len(losses)),
             "passed": {"current": [passed_a, n_a], "changed": [passed_b, n_b]},
             "median_tokens": {"current": tok_a, "changed": tok_b},
+            "cost": change_cost(base, cand),
             "per_task": {"current": {t: list(a[t]) for t in sorted(a)}, "changed": {t: list(b[t]) for t in sorted(b)}}}
 
 

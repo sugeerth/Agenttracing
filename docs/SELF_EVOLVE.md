@@ -159,6 +159,20 @@ agent runs.
     went from 3 caught to 10. The 2 still missed (a rounding precision,
     and the enumeration limit read from the module) change nothing that
     matters.
+- **What a change costs a run.** Each tested change's record carries
+  `cost`: tokens, seconds and steps per run, paired by task with the
+  exact sign-flip test over the tasks (`selfevolve.change_cost`). The
+  card says "tokens +69% a run, shown by 6 tasks (p 0.031)" instead of
+  a pooled median. Cost decides nothing; the passes still do.
+  - **Recorded, every tested change on disk** (6 tasks each):
+    - Reading the project's guide (kept): tokens ×1.69, shown (p 0.031).
+    - Edge cases on top of it (kept): ×2.42, shown (p 0.031).
+    - The hard six's edge cases (kept): ×1.33, not shown (p 0.16).
+    - Edge cases without the guide (reverted): ×3.43, shown.
+    - Review the diff (reverted): ×1.42, not shown.
+    - Spec first (reverted): ×1.14, not shown.
+  - The pooled medians the card showed before differed from these by up
+    to 1.4×: 4.84 against 3.43, 1.56 against 1.33.
 - **Whether a run reached for the fix.** Taking `.git` out of the
   workspace stops an agent reading the answer from history. It does not
   stop an agent with a network or an installed copy of the project from

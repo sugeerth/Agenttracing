@@ -310,6 +310,18 @@ def _runs_chart(entry, data: dict, *, open_: bool) -> str:
             f'{chart}</details>')
 
 
+def _cost(cost, med) -> str:
+    """What a change cost a run, paired by task with the exact test over tasks: ' · tokens +33% a run, not shown by
+    6 tasks (p 0.16)'. Without that pairing (an older record), the pooled median as before."""
+    tok = (cost or {}).get("tokens") or {}
+    if tok.get("ratio") is None or tok.get("p") is None:
+        return _tokens(med)
+    d = tok["ratio"] - 1
+    size = "about the same" if abs(d) < 0.05 else f"{'+' if d > 0 else '−'}{abs(d) * 100:.0f}%"
+    shown = "shown" if tok["p"] <= 0.05 else "not shown"
+    return f" · tokens {size} a run, {shown} by {tok['tasks']} tasks (p {tok['p']:.2g})"
+
+
 def _tokens(med) -> str:
     """What a change cost: ' · tokens +19%' (median per run, the change against the harness as it was)."""
     if not med or not med.get("current") or med.get("changed") is None:
@@ -469,7 +481,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
             odds += (f' · <span class="ok" title="{e(conf["first"]["chance"])}">held when '
                      f'{e(", ".join(conf["tasks"]))} ran again</span>' if conf.get("held") else
                      f' · <span class="bad">did not hold when {e(", ".join(conf["tasks"]))} ran again</span>')
-        odds += _tokens(t.get("median_tokens") if t else None)
+        odds += _cost(t.get("cost") if t else None, t.get("median_tokens") if t else None)
         if g["failed"] == 0:
             chg = '<span class="ok">✓ every run passed</span>'
         elif not rem:

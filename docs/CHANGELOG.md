@@ -5,6 +5,29 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## What a tested change costs a run, and whether the tasks show it
+
+`selfevolve.change_cost`, and `cost` in each tested change's record
+(`decide`). For tokens, seconds and steps it gives:
+- the changed harness over the one it replaces, per run;
+- the figure paired by task, as a geometric mean with an interval;
+- the exact sign-flip p over tasks (`efficiency.resources_per_run`).
+
+The evolution card now says "tokens +69% a run, shown by 6 tasks
+(p 0.031)". It used to give the pooled median alone ("tokens +100%").
+An older record keeps its median. Cost decides nothing.
+
+Measured on every tested change recorded on disk (all real but one):
+- **Kept:**
+  - reading the project's guide: tokens ×1.69, shown by 6 tasks
+    (p 0.031);
+  - the edge-case instruction on top of the guide: ×2.42 (p 0.031);
+  - the hard six's edge cases: ×1.33, not shown (p 0.16).
+- **Reverted:** edge cases on the generic run ×3.43 (p 0.031), review
+  the diff ×1.42 (p 0.094), spec first ×1.14 (p 0.63).
+- **Scripted stand-in (synthetic):** ×1.00.
+- The pooled medians differed from the paired ratios by up to 1.4×.
+
 ## What a recovery cost
 
 `process.recovery` used to count recoveries. Now it also says what each

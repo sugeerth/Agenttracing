@@ -4,6 +4,51 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-09
+
+**How it was read.** Through search-engine extracts.
+
+**Read:**
+- *Evaluating AGENTS.md* (Gloaguen et al., arXiv 2602.11988, ICLR 2026).
+  Context files tended to reduce success and raised inference cost by
+  over 20%. Developer-written files did slightly better. Also an
+  efficiency study (arXiv 2601.20404) and a two-agent ablation (arXiv
+  2607.27250).
+- *Agents Explore but Agents Ignore* (arXiv 2604.17609). On SWE-Bench, a
+  solution sitting in the agent's own terminal output went
+  unacknowledged over 96% of the time.
+- *ACCORD* (arXiv 2606.16432). It checks each write against evidence
+  the trajectory already holds. *AgentLTL* (arXiv 2607.02599) is trace
+  constraints, such as every entity in the answer appearing in an
+  earlier tool output.
+- Reporting standards: *Rollout Cards* (arXiv 2605.12131; the reporting
+  rule alone moves scores up to 20.9 points), a pilot audit of agent
+  benchmark papers (arXiv 2605.21404; none disclosed inference cost),
+  and harness disclosure, again.
+
+**Taken: what a tested change costs a run, and whether the tasks show
+it.** The context-file study measures what an instruction costs.
+AgentDiff's card said it with a pooled median and no test.
+- Built: `selfevolve.change_cost`, carried by every tested change and
+  said on the card. It reuses run 22's paired ratio and exact test.
+- Measured on every tested change recorded:
+  - Reading the project's guide, a kept change, cost +69% tokens a run,
+    and 6 tasks show it (p 0.031). That matches the study's finding
+    that context files cost more.
+  - The pooled medians had been off by up to 1.4×.
+
+**Not taken, and why:**
+- **Unacknowledged evidence** (Agents Ignore). Telling whether a
+  solution in an output "entered the reasoning" needs reading the
+  reasoning for meaning. A rule over text would guess, and a model
+  would decide.
+- **Evidence-checked writes** (ACCORD). It acts inside the run.
+  AgentDiff reads traces afterwards, and its grounding check already
+  asks whether a call's arguments came from somewhere.
+- **A rollout card format.** AgentDiff's records already carry the
+  harness, the runs per task and the rule each figure uses. A new
+  format would rename them, not add to them.
+
 ## 2026-11-08
 
 **How it was read.** Through search-engine extracts.
