@@ -4,6 +4,60 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-10
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- *Consistency as a Testable Property* (Raj et al., arXiv 2605.10516).
+  It splits trajectory inconsistency into which actions are taken
+  (composition) and their order, and finds trajectory metrics more
+  telling than pass@1.
+- *Towards a Science of AI Agent Reliability* (Rabanser et al., arXiv
+  2602.16666, ICML 2026). Outcome, trajectory (by distribution and by
+  sequence) and resource consistency. AgentDiff has had all three since
+  its reliability module, with the ICC.
+- *Agents Are Systems, Not Models* (arXiv 2610.01618). About 54% of score
+  variance among genuine attempts is run-to-run noise. The ICC already
+  gives this split per agent.
+- *Bad Genius* (arXiv 2609.18366). Task holdout catches only
+  task-specific shortcuts; a counterfactual benchmark catches
+  benchmark-wide ones. *HarnessEvolve* (arXiv 2609.00829) gates each
+  update on no loss over recent batches. *Self-Evolving Agent Harness*
+  (arXiv 2610.18813) gives an admission rule on fresh validation data.
+- Failure attribution: *Tracing Agentic Failure from the Flow of Success*
+  (arXiv 2607.12747), *When Failures Propagate* (arXiv 2608.20627;
+  post-hoc attribution 0.91 at the first hop, 0.00 at later ones),
+  SearchAuditor and a long-horizon attribution benchmark (arXiv
+  2608.06909).
+- *Tencent WorkBuddy Bench* (arXiv 2607.20911): tasks rebuilt from
+  commits and rewritten so the prompt cannot be searched for.
+
+**Taken: where repeated runs' paths part.** AgentDiff's trajectory
+consistency used an edit distance, which counts a reordered step and a
+different step alike. The split separates them.
+- Built: `reliability.path_split`. Per pair, the common-subsequence
+  agreement and its loss split exactly into other actions and order.
+  Carried by each task and agent, said under `agentdiff runs` and in the
+  dashboard tile.
+- Measured on every recorded real run set: the loss is almost all other
+  actions (0.14–0.34), with 0.00–0.015 lost to order. Shuffled paths
+  would lose 0.20–0.29 to order, and none of 200 shuffles came as low.
+
+**Not taken, and why:**
+- **Kernel U-statistic tests of consistency** (the paper's method). They
+  need a kernel over trajectories, and that choice sets the answer. The
+  split has nothing to tune, and the shuffle is its reference; that
+  stays a measurement here, not a field.
+- **A counterfactual benchmark** (Bad Genius). A Challenger model writes
+  it, and a model would then decide which gains count.
+- **One-class failure attribution** (OAT). It trains a neural model on
+  successful runs. AgentDiff compares failing runs with passing ones
+  directly.
+- **Gating each change on recent batches** (HarnessEvolve). Rejected on
+  2026-10-30 as reverting on forgetting.
+
 ## 2026-11-09
 
 **How it was read.** Through search-engine extracts.

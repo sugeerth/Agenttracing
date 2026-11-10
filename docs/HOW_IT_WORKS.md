@@ -144,6 +144,18 @@ For a fixed budget, new tasks never buy less. Runs of the same tasks are
 still what pass^k and flaky tasks need. The ICC comes from the same
 tasks, so it is rough, and below 20 tasks the plan says so.
 
+`trajectory_consistency` says how far repeated passing runs' paths agree.
+Its `split` says where they part. For each pair of runs, agreement is
+the longest common subsequence of their actions over the longer path,
+and what it loses splits exactly in two:
+- **other actions**: the longer path's share of actions the other run
+  never took, counted as often as each was taken;
+- **order**: actions both runs took, in an order that cannot be lined up.
+
+The three parts add up to 1 for every pair, and so do their means. On
+the recorded real runs, almost all of the loss is other actions. Shuffling
+each path's order would add 0.20–0.29 lost to order.
+
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)

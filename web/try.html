@@ -392,7 +392,8 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
         a.unbroken_records && a.unbroken_records.passed_every_run ? el("p", { class: "unbroken", text: a.unbroken_records.says + "." }) : null,
         a.run_plan && a.run_plan.open ? el("p", { class: "unbroken plan", text: a.run_plan.says + "." }) : null,
         a.rerun_flips && a.rerun_flips.expected_flips !== null ? el("p", { class: "unbroken flips", text: a.rerun_flips.says.charAt(0).toUpperCase() + a.rerun_flips.says.slice(1) + "." }) : null,
-        a.runs_or_tasks && a.runs_or_tasks.more_runs !== null ? el("p", { class: "unbroken spend", text: a.runs_or_tasks.says.charAt(0).toUpperCase() + a.runs_or_tasks.says.slice(1) }) : null
+        a.runs_or_tasks && a.runs_or_tasks.more_runs !== null ? el("p", { class: "unbroken spend", text: a.runs_or_tasks.says.charAt(0).toUpperCase() + a.runs_or_tasks.says.slice(1) }) : null,
+        a.trajectory_consistency && a.trajectory_consistency.split && a.trajectory_consistency.split.says ? el("p", { class: "unbroken paths", text: a.trajectory_consistency.split.says.charAt(0).toUpperCase() + a.trajectory_consistency.split.says.slice(1) + "." }) : null
       ]);
       host.appendChild(tile);
     });

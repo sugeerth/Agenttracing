@@ -5,6 +5,33 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Where repeated runs' paths part: other actions, or another order
+
+`reliability.path_split`, carried as `split` in `trajectory_consistency`,
+for each task and each agent. It gives a line under `agentdiff runs`
+and a line in each agent's tile on the web dashboard. For each pair of
+passing runs:
+- **agree**: the longest common subsequence over the longer path;
+- **other actions**: the share of the longer path the other run never
+  took;
+- **order**: the same actions, in an order that cannot be lined up.
+
+The three add up to 1 exactly. `similarity.lcs_length` is the common
+subsequence that `lcs_ratio` already used, now shared.
+
+Measured on every recorded real run set with two or more passing runs a
+task:
+- **A/A suite** (20 runs, 10 task-arms): agree 0.86. 0.14 is lost to
+  other actions and 0.00 to order.
+- **The hard-task example** (40 runs, 14): 0.65; 0.34 other actions, 0.015
+  order.
+- **The six-task example** (10 runs, 5): 0.78; 0.23 other actions, 0.00
+  order.
+- **Each path's order shuffled** (seeded, 200 times): the order loss
+  would be 0.29, 0.20 and 0.29 (medians). None of the 200 came as low
+  as the real runs in any set. These agents keep their order; what
+  varies is which actions they take.
+
 ## What a tested change costs a run, and whether the tasks show it
 
 `selfevolve.change_cost`, and `cost` in each tested change's record

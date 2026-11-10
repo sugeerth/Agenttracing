@@ -81,6 +81,7 @@ import math
 import random
 from typing import Optional, Sequence
 
+from .similarity import lcs_length
 from .stability import _cv, _levenshtein
 from ._stats import percentile_interval
 from .statistics import (BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, central_range, exact_interval, fail_rate_at_most,
@@ -172,6 +173,68 @@ def sequence_consistency(runs: Sequence[Trajectory]) -> Optional[float]:
         for j in range(i + 1, len(seqs))
     ]
     return round(sum(scores) / len(scores), 4)
+
+
+def path_split_pair(a: Sequence[str], b: Sequence[str]) -> dict:
+    """Where two action paths part: other actions, or the same ones reordered.
+
+    ``shared`` is the multiset overlap (an action taken twice in both runs
+    counts twice) and ``lcs`` the longest common subsequence, so
+    ``lcs <= shared <= max(|a|, |b|)``.  The common-subsequence agreement
+    ``lcs / max`` then splits exactly into two losses that add up:
+
+    - ``actions``: ``1 - shared / max``, the share of the longer path made of
+      actions the other run never took;
+    - ``order``: ``(shared - lcs) / max``, actions both runs took, but in an
+      order that cannot be lined up.
+    """
+    longest = max(len(a), len(b))
+    if longest == 0:
+        return {"agree": 1.0, "actions": 0.0, "order": 0.0}
+    left: dict = {}
+    for x in a:
+        left[x] = left.get(x, 0) + 1
+    shared = 0
+    for x in b:
+        if left.get(x):
+            left[x] -= 1
+            shared += 1
+    lcs = lcs_length(list(a), list(b))
+    return {"agree": lcs / longest, "actions": 1 - shared / longest,
+            "order": (shared - lcs) / longest}
+
+
+def path_split(runs: Sequence[Trajectory]) -> Optional[dict]:
+    """Mean of :func:`path_split_pair` over every pair of ``runs``.
+
+    None below two runs, as for :func:`sequence_consistency`.  The three
+    means still add to 1 (rounding aside), so the split never claims more
+    disagreement than there is.
+    """
+    if len(runs) < 2:
+        return None
+    seqs = [action_sequence(t) for t in runs]
+    pairs = [path_split_pair(seqs[i], seqs[j])
+             for i in range(len(seqs)) for j in range(i + 1, len(seqs))]
+    out = {key: round(sum(p[key] for p in pairs) / len(pairs), 4)
+           for key in ("agree", "actions", "order")}
+    out["pairs"] = len(pairs)
+    return out
+
+
+def path_split_says(split: Optional[dict]) -> Optional[str]:
+    """One plain sentence for a split, or None when there is none."""
+    if not split:
+        return None
+    lost = split["actions"] + split["order"]
+    if lost < 0.005:
+        return "repeated runs took the same actions in the same order"
+    part = split["actions"] / lost
+    lead = ("mostly other actions" if part >= 2 / 3 else
+            "mostly the same actions in another order" if part <= 1 / 3 else
+            "both other actions and another order")
+    return (f"repeated runs' paths agree {split['agree']:.0%}; where they part, it is "
+            f"{lead} ({split['actions']:.0%} other actions, {split['order']:.0%} order)")
 
 
 def _resource_values(runs: Sequence[Trajectory]) -> dict[str, list[float]]:
@@ -666,6 +729,7 @@ def _agent_reliability(name: str,
     cov_by_k: dict[int, list[float]] = {k: [] for k in range(1, max_k + 1)}
     outcome_scores: list[float] = []
     sequence_scores: list[float] = []
+    split_scores: list[dict] = []
     resource_scores: list[float] = []
     resource_totals: dict[str, list[float]] = {}
     icc_groups: list[list[float]] = []
@@ -697,6 +761,9 @@ def _agent_reliability(name: str,
         seq = sequence_consistency(successful)
         if seq is not None:
             sequence_scores.append(seq)
+        split = path_split(successful)
+        if split is not None:
+            split_scores.append(split)
 
         resources = resource_consistency(runs)
         if resources["value"] is not None:
@@ -731,6 +798,7 @@ def _agent_reliability(name: str,
                 "value": seq,
                 "runs_compared": len(successful),
                 "basis": "successful runs only (HAL)",
+                "split": split,
                 "reason": None if seq is not None
                 else f"needs at least 2 successful runs, has {len(successful)}",
             },
@@ -817,6 +885,17 @@ def _agent_reliability(name: str,
         "source": "HAL trajectory consistency",
         "reason": None if sequence_scores
         else "no task has 2+ successful eligible runs to compare paths across",
+    }
+    agent_split = ({key: round(_mean([x[key] for x in split_scores]), 4)
+                    for key in ("agree", "actions", "order")} if split_scores else None)
+    sequence_block["split"] = {
+        **(agent_split or {"agree": None, "actions": None, "order": None}),
+        "tasks_scored": len(split_scores),
+        "says": path_split_says(agent_split),
+        "basis": "per pair of successful runs, common-subsequence agreement "
+                 "lcs/max-length; what it loses splits exactly into other "
+                 "actions (1 - multiset overlap/max) and the same actions in "
+                 "another order ((overlap - lcs)/max); mean over pairs, then tasks",
     }
     resource_block = {
         "value": round(_mean(resource_scores), 4) if resource_scores else None,

@@ -141,6 +141,10 @@ def _print_reliability(analysis: dict) -> None:
             detail = (f"{value:.3f} over {block['tasks_scored']}/{block['of_tasks']} task(s)"
                       if value is not None else f"n/a ({block['reason']})")
             print(f"    {label} consistency: {detail}")
+        split = row["trajectory_consistency"].get("split") or {}
+        if split.get("says"):
+            print(f"    paths: {split['says']} "
+                  f"({split['tasks_scored']} task(s))")
         icc = row["icc"]
         if icc.get("icc1") is not None:
             print(f"    ICC(1): {icc['icc1_clamped']:.3f} "
