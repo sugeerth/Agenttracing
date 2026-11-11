@@ -4,6 +4,66 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-11
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- *Analyzing and Mitigating Cost-Inefficient Behaviors in Coding Agents*
+  (arXiv 2609.30725). It covers 1,200 trajectories, and names three wasteful
+  habits. One is re-running the same tests with no patch change in between:
+  49.67–83% of tasks, up to 5.39% of a task's cost. It also tested
+  guidance written from developer practice, which cost Pass@1 1.5 points.
+- *Harness-Delta Attribution* (arXiv 2610.22466). It splits a harness
+  evolution's gain into overfitting (about 54% on average), test-time
+  scaling (about 14%) and what is left. It uses a compute-matched
+  baseline and a de-overfit harness, over 21 settings.
+- *Agent Benchmarks Stop Ranking Before They Run Out of Tasks* (arXiv
+  2611.13541). Saturation lies mostly in pass/fail scoring, not in the
+  tasks. Runs tied on pass/fail differed tenfold on what the tests
+  discard. It proposes graded credit, with cost as a separate axis.
+- On cost: *ClawTrace* (arXiv 2604.23853) rolls sub-agent cost up to the
+  task, and *AgentPProf* (arXiv 2609.20301) attributes a long run's
+  resources by phase.
+- Also: *TASTE* (arXiv 2605.28556), with harder generated tasks that drop
+  near-saturated scores; RRSI and *Rethinking the Evaluation of Harness
+  Evolution*, both logged before; *AgentGuard* (arXiv 2609.16287).
+
+**Taken: nothing.** Two ideas fit AgentDiff, and both were measured on
+every recorded real run here before anything was built:
+- **Checks re-run with nothing changed** (the cost paper's test
+  re-execution). Across 94 real runs (A/A suite 24, live suites 16, the
+  hard-task example 42, the six-task example 12), no tool call was
+  repeated without an edit between. That held even when only an edit
+  counts as a change. These runs are short, at a median of 5–9 steps.
+  A field that reads 0 on every run it can be checked on would be shown
+  only on synthetic data. `process.repeats` already counts repeated
+  calls, and the live `repeat` guard refuses a failing command re-run
+  unchanged.
+- **Graded credit from the held-out check** (2611.13541). Each record
+  keeps the tail of its check output, so tests passed out of tests run
+  can be read from unittest's summary. Only 4 real runs failed, though:
+  2 of the hard-task runs, which missed 1 of 6 tests, and 2 of the
+  six-task runs. One of those printed 6 failures and errors for 4 tests
+  (a module-level error counts beyond the tests run), so a score would
+  need clipping. Four failing runs cannot show that the graded score
+  separates anything.
+
+Revisit both when longer real runs are recorded, such as a `--from-git`
+evolution kept in the repository. The python-slugify corpus used up to
+2026-11-08 was never committed and is gone.
+
+**Not taken, and why:**
+- **Harness-Delta's compute-matched baseline.** Rejected on 2026-10-18 for
+  `--from-git` tasks: choosing the best of extra runs by the held-out
+  grader is choosing with the answer key.
+- **Cost by phase** (AgentPProf). In these traces, a step's tokens are
+  the whole context it was sent, so a phase's share would measure how
+  late in the run it came, not what the phase cost.
+- **Harder generated tasks** (TASTE). A model writes them.
+- **Learned guardrails** (AgentGuard). It trains on anomalous runs.
+
 ## 2026-11-10
 
 **How it was read.** Through search-engine extracts; arxiv.org could not
