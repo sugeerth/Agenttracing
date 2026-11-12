@@ -104,6 +104,18 @@ paired inference with an exact sign test, output equality
 task family, with *clear* / *overlapping* / *insufficient*), and the
 scorecard (§6).
 
+`stability` says, per task, how often the two arms' runs first part in
+the same way (`divergence_reproducibility`). Two runs of one agent part
+too, so the rate alone is no evidence that the arms differ.
+`relabelled` deals the arm labels over the task's runs every possible
+way. `p` is the share of those deals that part the runs at least as
+consistently as the real labels.
+- The stability narrative claims a behavioural gap only where `p` is at
+  most 0.05.
+- With equal sides, a deal and its mirror count alike, so the least
+  possible `p` is 1/3 at 2 runs a side and 1/10 at 3. Only from 4 runs a
+  side can any pattern show (`can_show`).
+
 A task that passed every run is reported as stable, but a few runs leave
 room for a lot. Each task in `reliability` carries an exact (Clopper–Pearson)
 95% interval for its pass rate (`success_rate_exact95`). A task with an

@@ -85,7 +85,9 @@ def run(args: argparse.Namespace) -> int:
         repro = entry["divergence_reproducibility"]
         print(f"  {entry['task']}: A {entry['a']['verdict']} "
               f"B {entry['b']['verdict']} | divergence {repro['verdict']}"
-              + (f" ({repro['kind']}, rate {repro['rate']:g})" if repro["kind"] else ""))
+              + (f" ({repro['kind']}, rate {repro['rate']:g})" if repro["kind"] else "")
+              + (f"; relabelled p {repro['relabelled']['p']:g} over {repro['relabelled']['splits']} split(s)"
+                 if (repro.get("relabelled") or {}).get("p") is not None else ""))
     print(stability["narrative"])
     consolidated = agg["diagnosis_consolidated"]
     print("Diagnosis across runs:")

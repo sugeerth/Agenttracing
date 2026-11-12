@@ -5,6 +5,50 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A divergence pattern, against the arm labels dealt at random
+
+`stability` gave each task a divergence verdict: how often the two
+arms' runs first part in the same way, `systematic` at 0.8 or more. Its
+narrative then said the gaps were "behavioral, not noise". On the A/A
+suite, one agent under two names, it called one task systematic and
+four variable. Two runs of one agent part too.
+
+`divergence_reproducibility.relabelled` is an exact permutation test.
+Every split of the task's runs into arms of the same sizes is scored,
+with a seeded sample past 2,000 splits. It gives:
+- `p`: the share of splits that part the runs at least as consistently;
+- `least_p`: the smallest `p` these run counts allow;
+- `can_show` and `beyond_chance` (`p` at most 0.05).
+
+The verdict and rate are unchanged. The narrative now claims a
+behavioural gap only where `p` is at most 0.05. Elsewhere it says "too
+few runs" (`least_p` above 0.05) or that relabelled runs part as
+consistently. With equal sides, a split and its mirror part alike, so
+`least_p` is 1/3 at 2 runs a side, 1/10 at 3 and 2/70 at 4. `agentdiff
+runs` prints each task's `p`.
+
+First divergences now come from the alignment alone, not from a full
+pair report. That is about 3 ms a pair instead of about 1 s on the
+recorded runs, with the same answer on every pair compared.
+
+Measured:
+- **Synthetic, seeded** (200–400 tasks a setting, three possible paths):
+  - With identical arms, `systematic` fired on up to 23% of tasks (2 runs
+    a side), 13% at 3 and 9–11% at 4–5. "Systematic or variable" fired
+    on 51–100%.
+  - With identical arms, `beyond_chance` fired on at most 4.5%.
+  - When the arms differ, it fired as often as `systematic` did, from 4
+    runs a side: 41% at 4, 66% at 5 and 72% at 6 for a 90/10 split of
+    paths, and 100% when they always differ.
+- **Recorded A/A suite** (2 a side): the systematic task has `p` 1/3,
+  and the four variable ones have `p` 1. The narrative no longer calls
+  the gap behavioral.
+- **Recorded hard-task example** (3 a side, two harnesses): six variable
+  tasks, `p` 0.1–1.0. No task can show a pattern at 3 runs a side, and
+  none did.
+- **Synthetic demo runs** (3 a side): four systematic tasks at `p` 0.1,
+  the least possible. The narrative says too few runs.
+
 ## Where repeated runs' paths part: other actions, or another order
 
 `reliability.path_split`, carried as `split` in `trajectory_consistency`,

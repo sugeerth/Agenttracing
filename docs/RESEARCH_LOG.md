@@ -4,6 +4,62 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-12
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- *Accuracy and Cost Claims Do Not Survive Re-Execution in Agentic
+  VideoQA* (arXiv 2607.01469). The same paired comparison, re-run in
+  full, went from +7.33 to −4.05 points, each significant within its own
+  run. Its protocol, REPAIR, asks that a claimed effect survive
+  re-execution.
+- *AgentDiff: Meaning-Bearing Rewrites Trigger Deeper Divergence than
+  Presentation Changes* (Zhang and Guo, arXiv 2605.25981). A paper that
+  shares the project's name. Rewrites that change meaning leave the
+  first action alone and drift from step 2 ("stealth divergence"). One
+  robustness check loses significance under a stricter bootstrap.
+- *What Does an Agentic Software Engineering Benchmark Measure?* (arXiv
+  2609.01271): profiles a task's demands from 14,922 trajectories.
+- *SWE-Bench Pro Verified* (arXiv 2609.08149): three reference patches
+  fail their own grader on replay.
+- On evolving skills: a survey of self-evolving coding agents (arXiv
+  2608.03392), CODESKILL (2605.25430), SkillOpt (2605.23904) and
+  MUSE-Autoskill (2605.27366).
+- *Replayable Financial Agents* (arXiv 2601.15322): seeing no variation
+  does not show a run is deterministic.
+
+**Taken: a divergence pattern, against the arm labels dealt at random.**
+Reading REPAIR and the stealth-divergence paper led back to AgentDiff's
+own A/A suite. `stability` called one task's divergence systematic, and
+its narrative called the gap "behavioral, not noise", between one
+agent and itself.
+- Built: `relabelled`, an exact permutation test over every split of a
+  task's runs into the two arms. It gives `p`, the least `p` the run
+  counts allow, and whether any pattern could show. The narrative claims
+  a gap only at `p` ≤ 0.05.
+- Measured (synthetic, seeded): with identical arms, the old
+  `systematic` fired on up to 23% of tasks, and the test on at most
+  4.5%. When the arms differ, it fires as often as `systematic`, from 4
+  runs a side.
+- Real: the A/A suite's systematic task has `p` 1/3. In the recorded
+  two-harness example, no task goes beyond chance, and at 3 runs a side
+  none could.
+
+**Not taken, and why:**
+- **REPAIR's full re-execution.** `--confirm` already re-runs the tasks
+  that moved, under both arms, and keeps a change only if the fresh runs
+  alone show it winning.
+- **Rewrites as a placebo arm** (the stealth-divergence study). It needs
+  real runs of a rewritten harness, and no agent could be run from this
+  session.
+- **Task-demand profiles** (2609.01271). No recorded from-git outcomes
+  are left here to relate a profile to.
+- **Replaying the reference patch.** `--from-git` already keeps a task
+  only when its tests fail on the parent and pass on the commit
+  (`gittasks.build`).
+
 ## 2026-11-11
 
 **How it was read.** Through search-engine extracts; arxiv.org could not
