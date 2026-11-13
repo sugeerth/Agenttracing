@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentDiff: what it has measured</title>
+<meta name="description" content="Recorded agent evolutions, the times AgentDiff found its own numbers wrong, and how many runs it takes to know: every figure sourced.">
+<link rel="canonical" href="https://sugeerth.github.io/agentdiff/evidence/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sugeerth.github.io/agentdiff/evidence/">
+<meta property="og:site_name" content="Sugeerth Murugesan">
+<meta property="og:title" content="AgentDiff: what it has measured">
+<meta property="og:description" content="Recorded agent evolutions, the times AgentDiff found its own numbers wrong, and how many runs it takes to know.">
+<meta property="og:image" content="https://sugeerth.github.io/images/og/agentdiff.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="AgentDiff — git diff for AI agents — sugeerth.github.io">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://sugeerth.github.io/images/og/agentdiff.jpg">
+<meta name="twitter:title" content="AgentDiff: what it has measured">
+<meta name="twitter:description" content="Recorded agent evolutions, the times AgentDiff found its own numbers wrong, and how many runs it takes to know.">
+<meta name="agentdiff:no-cookies" content="1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>±</text></svg>">
+<style>
+/* Layout: one column of sections in the order a reader asks: what changed itself, where the numbers were wrong,
+   how strong the graders are, how many runs it takes, and the log. Each chart sits beside its own table. */
+:root{color-scheme:light;--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--muted:#6f6d68;--grid:#e1e0d9;--axis:#c3c2b7;--line:#e1e0d9;
+  --s1:#2a78d6;--s2:#eb6834;--s3:#7a5bd1;--good:#0ca30c;--good-ink:#006300;--bad:#d03b3b;--bad-ink:#a32121;--warn-ink:#7a5200;--accent:#0f5f55;--radius:10px}
+@media (prefers-color-scheme: dark){:root:where(:not([data-theme="light"])){color-scheme:dark;--page:#0d0d0d;--surface:#1a1a19;--ink:#f0efec;--ink-2:#c3c2b7;--muted:#a09e97;--grid:#2c2c2a;--axis:#383835;--line:#2c2c2a;
+  --s1:#3987e5;--s2:#d95926;--s3:#9b82e6;--good-ink:#5cd65c;--bad-ink:#ff8f8f;--warn-ink:#fab219;--accent:#5fc2b2}}
+:root[data-theme="dark"]{color-scheme:dark;--page:#0d0d0d;--surface:#1a1a19;--ink:#f0efec;--ink-2:#c3c2b7;--muted:#a09e97;--grid:#2c2c2a;--axis:#383835;--line:#2c2c2a;
+  --s1:#3987e5;--s2:#d95926;--s3:#9b82e6;--good-ink:#5cd65c;--bad-ink:#ff8f8f;--warn-ink:#fab219;--accent:#5fc2b2}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:76rem;margin:0 auto;padding:0 16px}
+header{padding:24px 0 6px}
+.crumbs{font-size:14px;color:var(--ink-2);margin:0 0 8px}
+h1{font-size:clamp(24px,4vw,34px);line-height:1.15;margin:0 0 8px;letter-spacing:-.01em}
+.standfirst{color:var(--ink-2);max-width:52rem;margin:0}
+.toc{display:flex;flex-wrap:wrap;gap:6px 14px;margin:14px 0 0;padding:0;list-style:none;font-size:14px}
+section.part{margin:28px 0 0}
+h2{font-size:20px;margin:0 0 4px;letter-spacing:-.005em}
+h3{font-size:15px;margin:0 0 2px}
+.sub{font-size:13.5px;color:var(--ink-2);margin:0 0 12px;max-width:60rem}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:12px;margin:0 0 14px}
+.tile{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:12px 14px}
+.tile .k{font-size:13px;color:var(--ink-2)}
+.tile .v{font-size:30px;font-weight:650;line-height:1.1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.tile .s{font-size:12.5px;color:var(--ink-2)}
+.panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px;min-width:0;margin:0 0 12px}
+.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,30rem),1fr));gap:12px}
+.panels .panel{margin:0}
+svg.chart{display:block;width:100%;height:auto;overflow:visible}
+svg.chart text{font:12px system-ui,sans-serif;fill:var(--muted)}
+svg.chart text.ink{fill:var(--ink)}
+svg.chart .gl{stroke:var(--grid);stroke-width:1}
+svg.chart .ax{stroke:var(--axis);stroke-width:1}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--ink-2);margin:0 0 6px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.label{display:inline-block;font-size:12px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);white-space:nowrap}
+.gridwrap{overflow-x:auto}
+table.data{border-collapse:collapse;font-size:13px;width:100%;font-variant-numeric:tabular-nums}
+table.data th,table.data td{text-align:left;padding:6px 8px;border-top:1px solid var(--line);vertical-align:top}
+table.data thead th{border-top:0;color:var(--ink-2);font-weight:600;white-space:nowrap}
+table.data td.n,table.data th.n{text-align:right;white-space:nowrap}
+table.data td.wrap{min-width:14rem}
+#evolutions td:first-child{min-width:13rem}
+.g{color:var(--good-ink);font-weight:600}.r{color:var(--bad-ink);font-weight:600}.w{color:var(--warn-ink);font-weight:600}
+table.squares td{padding:3px 6px;border-top:1px solid var(--line);font-size:13px;white-space:nowrap}
+table.squares th{font-size:12.5px;color:var(--ink-2);font-weight:600;text-align:left;padding:3px 6px}
+.sq{display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:4px;margin-right:3px;font-size:12px;font-weight:700}
+.sq.ok{background:var(--good);color:#fff}.sq.no{background:var(--bad);color:#fff}
+details.table{margin:10px 0 0}
+details.table summary{cursor:pointer;font-weight:600;font-size:14px}
+.search{display:flex;gap:8px;align-items:center;margin:0 0 10px}
+.search label{font-size:13px;color:var(--ink-2)}
+.search input{font:inherit;font-size:14px;color:var(--ink);background:var(--page);border:1px solid var(--line);border-radius:8px;padding:6px 8px;flex:1 1 14rem;max-width:24rem;min-width:0}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.note{font-size:13px;color:var(--ink-2);margin:6px 0 0}
+footer{border-top:1px solid var(--line);margin:32px 0 0;padding:16px 0 32px;font-size:14px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <p class="crumbs"><a href="/">sugeerth.github.io</a> / <a href="../">agentdiff</a> / evidence</p>
+    <h1>What AgentDiff has measured</h1>
+    <p class="standfirst">The <a href="../try/">repeatability dashboard</a> measures your runs. This page is what AgentDiff found running agents again and again itself: a harness that changed its own instructions, the times its own numbers turned out wrong, how much a task's tests can tell apart, and how many runs it takes to know anything. Each figure says where it comes from: recorded runs, exact arithmetic, or a labelled simulation.</p>
+    <ul class="toc" aria-label="On this page">
+      <li><a href="#evolution">How a harness changed itself</a></li>
+      <li><a href="#honesty">Where its numbers were wrong</a></li>
+      <li><a href="#graders">How strong the graders are</a></li>
+      <li><a href="#runs">How many runs it takes</a></li>
+      <li><a href="#log">The research log</a></li>
+    </ul>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="part" id="evolution" aria-labelledby="h-evolution">
+    <h2 id="h-evolution">How a harness changed itself</h2>
+    <p class="sub">Every evolution recorded with a real agent. Each generation the harness tried at most one change and kept it only if a paired test over the tasks said it won more tasks than it lost. In the later evolutions, the tasks that moved ran again under both versions to see whether the win held. The agent's model is not named.</p>
+    <div class="tiles" id="evo-tiles"></div>
+    <div class="panel">
+      <h3 id="h-changes">Every tested change, before and after</h3>
+      <p class="sub">The share of runs passed before the change (hollow) and after it (filled). ✓ kept, ✗ reverted. The last row is a scripted stand-in, labelled synthetic.</p>
+      <svg class="chart" id="changes" role="img" aria-labelledby="h-changes"></svg>
+    </div>
+    <div>
+      <div class="panel">
+        <h3 id="h-hardsix">The hard six tasks, before and after the kept change</h3>
+        <p class="sub">One square per run. The change was kept because one task moved, which a change that did nothing would do about half the time; so that task ran again under both versions, and the win held.</p>
+        <div class="gridwrap" tabindex="0" role="region" aria-label="The hard six tasks, run by run"><table class="squares" id="hardsix" aria-labelledby="h-hardsix"></table></div>
+      </div>
+      <div class="panel">
+        <h3 id="h-evolutions">All recorded evolutions</h3>
+        <div class="gridwrap" tabindex="0" role="region" aria-label="All recorded evolutions"><table class="data" id="evolutions" aria-labelledby="h-evolutions"></table></div>
+      </div>
+    </div>
+    <p class="note" id="src-evolutions"></p>
+  </section>
+
+  <section class="part" id="honesty" aria-labelledby="h-honesty">
+    <h2 id="h-honesty">Where its own numbers were wrong</h2>
+    <p class="sub">Each daily run audited one of AgentDiff's numbers against its definition, or against data where the right answer is known. These are the ones found wrong. On each row the dashed tick is the target, the hollow dot what the number was, and the filled dot what it is now.</p>
+    <div class="panel">
+      <svg class="chart" id="checks" role="img" aria-label="Each audited number: what it was, what it is now, and its target"></svg>
+      <details class="table"><summary>Table view</summary><div class="gridwrap" tabindex="0" role="region" aria-label="Numbers found wrong, as a table"><table class="data" id="checks-table"></table></div></details>
+    </div>
+    <p class="note" id="src-checks"></p>
+  </section>
+
+  <section class="part" id="graders" aria-labelledby="h-graders">
+    <h2 id="h-graders">How strong the graders are</h2>
+    <p class="sub">A task built from a repository's history is graded by the commit's own tests, held out from the agent. Small changes to the lines the commit changed (a flipped comparison, a constant one up, a negated condition) are graded by those tests; a change they miss is a gap in the tests, or a change that does nothing. Measured on this project's own recent commits.</p>
+    <div class="panel">
+      <svg class="chart" id="strength" role="img" aria-label="Small changes caught by each commit's tests"></svg>
+    </div>
+    <p class="note" id="src-graders"></p>
+  </section>
+
+  <section class="part" id="runs" aria-labelledby="h-runs">
+    <h2 id="h-runs">How many runs it takes to know</h2>
+    <div class="panels">
+      <div class="panel">
+        <h3 id="h-bounds">What a run of straight passes rules out</h3>
+        <p class="sub">After a run of passes with no failure, the highest failure rate still possible (95%, one-sided, exact). A task called stable after a handful of runs could still fail often.</p>
+        <svg class="chart" id="bounds" role="img" aria-labelledby="h-bounds"></svg>
+      </div>
+      <div class="panel">
+        <h3 id="h-ruleout">Straight passes needed to rule out a failure rate</h3>
+        <p class="sub">The fewest passes in a row, with no failure, after which that rate is ruled out (95%, one-sided, exact).</p>
+        <table class="data" id="ruleout" aria-labelledby="h-ruleout"></table>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <h3 id="h-coverage">When a rerun-flip range can be trusted</h3>
+      <p class="sub">Synthetic, seeded. How often the range of verdicts a rerun would change held a fresh rerun, by runs per task, for three mixes of task pass rates. The dashed line is the share it should hold; the dashboard shows the range only from the marked point on.</p>
+      <div class="legend" id="coverage-legend"></div>
+      <svg class="chart" id="coverage" role="img" aria-labelledby="h-coverage"></svg>
+    </div>
+  </section>
+
+  <section class="part" id="log" aria-labelledby="h-log">
+    <h2 id="h-log">The research log</h2>
+    <p class="sub">One row per daily research-and-implement run: each read recent work, built at most one thing with the standard library, and measured it.</p>
+    <div class="panel">
+      <div class="search"><label for="log-q">Search</label><input id="log-q" type="search" placeholder="A word in any column"></div>
+      <div class="gridwrap" tabindex="0" role="region" aria-label="Research log table"><table class="data" id="logtable"></table></div>
+    </div>
+    <p class="note" id="src-log"></p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    AgentDiff is open source (MIT): <a href="https://github.com/sugeerth/Agenttracing">code on GitHub</a>, <a href="../">the project page</a>, or <a href="../try/">the repeatability dashboard</a>. Every figure here comes from the project's own records, exact arithmetic or a labelled simulation; no model decides any of it. The page sets no cookies.
+  </div>
+</footer>
+
+<script id="evidence-data" type="application/json">/*EVIDENCE*/</script>
+<script>
+(function () {
+  "use strict";
+  var D = JSON.parse(document.getElementById("evidence-data").textContent);
+  var NS = "http://www.w3.org/2000/svg";
+  var pct = function (v, d) { return v === null || v === undefined ? "—" : (v * 100).toFixed(d || 0) + "%"; };
+  var money = function (v) { return v === null || v === undefined ? "—" : "$" + v.toFixed(2); };
+  function el(tag, attrs, kids) {
+    var n = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) { if (k === "text") n.textContent = attrs[k]; else n.setAttribute(k, attrs[k]); });
+    (kids || []).forEach(function (c) { if (c !== null && c !== undefined) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+    return n;
+  }
+  function sv(tag, attrs, parent, text) {
+    var n = document.createElementNS(NS, tag);
+    Object.keys(attrs || {}).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+    if (text !== undefined) n.textContent = text;
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function widthOf(svg) { return Math.max(300, Math.round(svg.parentNode.clientWidth - 32)); }
+  function textW(svg, s) { var t = sv("text", { x: -999, y: -999 }, svg, s); var w = t.getComputedTextLength(); svg.removeChild(t); return w; }
+  function table(host, head, rows, numeric) {
+    host.textContent = "";
+    var thead = el("thead"), tr = el("tr");
+    head.forEach(function (h, i) { tr.appendChild(el("th", { text: h, class: numeric && numeric[i] ? "n" : "" })); });
+    thead.appendChild(tr); host.appendChild(thead);
+    var tb = el("tbody");
+    rows.forEach(function (r) {
+      var t = el("tr");
+      r.forEach(function (c, i) {
+        var td = el("td", { class: (numeric && numeric[i] ? "n" : "") + (typeof c === "string" && c.length > 60 ? " wrap" : "") });
+        if (c && c.nodeType) td.appendChild(c); else td.textContent = c;
+        t.appendChild(td);
+      });
+      tb.appendChild(t);
+    });
+    host.appendChild(tb);
+  }
+  function source(id, text) { document.getElementById(id).textContent = "Source: " + text + "."; }
+
+  // tiles
+  var T = D.totals, tiles = document.getElementById("evo-tiles");
+  [["Evolutions recorded", T.evolutions, ""], ["Real agent runs", T.runs, ""],
+   ["Spent, where logged", money(T.cost_usd), "logged for " + T.cost_logged + " of " + T.evolutions],
+   ["Changes tried", T.tried, ""], ["Kept", T.kept, T.held + " held when run again"]].forEach(function (t) {
+    tiles.appendChild(el("div", { class: "tile" }, [el("div", { class: "k", text: t[0] }), el("div", { class: "v", text: String(t[1]) }), t[2] ? el("div", { class: "s", text: t[2] }) : null]));
+  });
+
+  // a labelled row chart on a shared 0 to 100% scale
+  function rowChart(svg, rows, o) {
+    svg.textContent = "";
+    var W = widthOf(svg), rowH = 52, top = 4, axisH = 24, H = top + rows.length * rowH + axisH;
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    var x = function (v) { return 8 + v * (W - 20); };
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (v) {
+      sv("line", { x1: x(v), x2: x(v), y1: top, y2: H - axisH, class: "gl" }, svg);
+      sv("text", { x: x(v), y: H - 6, "text-anchor": v === 0 ? "start" : v === 1 ? "end" : "middle" }, svg, pct(v));
+    });
+    rows.forEach(function (r, i) {
+      var y0 = top + i * rowH, ym = y0 + 34, g = sv("g", {}, svg);
+      sv("title", {}, g, o.title(r));
+      var right = o.right(r), rw = right ? textW(svg, right.text) + 12 : 0;
+      var lab = sv("text", { x: 8, y: y0 + 14, class: "ink" }, g, o.label(r));
+      var room = W - 16 - rw, s = o.label(r);
+      while (lab.getComputedTextLength() > room && s.length > 10) { s = s.slice(0, -2); lab.textContent = s + "…"; }
+      if (right) sv("text", { x: W - 8, y: y0 + 14, "text-anchor": "end", style: "fill:" + right.color + ";font-weight:600" }, g, right.text);
+      o.marks(g, r, x, ym);
+    });
+  }
+  function dumbbell(g, x, y, from, to, color) {
+    if (from !== null && to !== null) sv("line", { x1: x(from), x2: x(to), y1: y, y2: y, style: "stroke:var(--muted);stroke-width:2;opacity:.6" }, g);
+    if (from !== null) sv("circle", { cx: x(from), cy: y, r: 5.5, style: "fill:var(--surface);stroke:var(--muted);stroke-width:2" }, g);
+    if (to !== null) sv("circle", { cx: x(to), cy: y, r: 6, style: "fill:" + color + ";stroke:var(--surface);stroke-width:2" }, g);
+  }
+
+  function drawChanges() {
+    var rows = D.changes.slice().sort(function (a, b) { return a.data === b.data ? 0 : a.data === "recorded" ? -1 : 1; });
+    rowChart(document.getElementById("changes"), rows, {
+      label: function (r) { return r.change + " · " + r.evolution + (r.data === "synthetic" ? " (synthetic)" : ""); },
+      right: function (r) { var k = r.verdict === "kept"; return { text: (k ? "✓ kept" : "✗ reverted") + (r.held ? ", " + r.held : ""), color: k ? "var(--good-ink)" : "var(--bad-ink)" }; },
+      marks: function (g, r, x, y) { dumbbell(g, x, y, r.before, r.after, r.verdict === "kept" ? "var(--good)" : "var(--bad)"); },
+      title: function (r) { return r.change + ": before " + r.before_passed + " of " + r.before_runs + " runs passed, after " + r.after_passed + " of " + r.after_runs + "; " + r.verdict + (r.held ? ", " + r.held + " when run again" : "") + " (" + r.data + ")"; }
+    });
+  }
+
+  function drawHardSix() {
+    var rows = D.hard_six, host = document.getElementById("hardsix"); host.textContent = "";
+    var COLS = [["before", "first runs", "Before"], ["before", "run again", "Before, again"], ["after", "first runs", "After"], ["after", "run again", "After, again"]];
+    var tasks = Array.from(new Set(rows.map(function (r) { return r.task; }))).sort();
+    var tr = el("tr", {}, [el("th", { text: "Task" })]);
+    COLS.forEach(function (c) { tr.appendChild(el("th", { text: c[2] })); });
+    host.appendChild(el("thead", {}, [tr]));
+    var tb = el("tbody");
+    tasks.forEach(function (t) {
+      var row = el("tr", {}, [el("td", { text: t })]);
+      COLS.forEach(function (c) {
+        var r = rows.filter(function (q) { return q.task === t && q.when === c[0] && q.phase === c[1]; })[0], td = el("td");
+        if (!r) td.appendChild(el("span", { class: "label", text: "not run" }));
+        else for (var k = 0; k < r.runs; k++) td.appendChild(el("span", { class: "sq " + (k < r.passed ? "ok" : "no"), text: k < r.passed ? "✓" : "✗", title: t + ", " + c[2].toLowerCase() + ": " + r.passed + " of " + r.runs + " passed", "aria-label": k < r.passed ? "passed" : "failed" }));
+        row.appendChild(td);
+      });
+      tb.appendChild(row);
+    });
+    host.appendChild(tb);
+  }
+
+  function drawEvolutions() {
+    table(document.getElementById("evolutions"), ["Evolution", "Runs", "Cost", "First generation", "Tried", "Kept", "What happened"],
+      D.evolutions.map(function (e) { return [e.evolution, String(e.runs), money(e.cost_usd), e.first_passed + " of " + e.first_runs, String(e.tried), String(e.kept), e.outcome]; }),
+      [false, true, true, true, true, true, false]);
+    source("src-evolutions", D.sources.evolutions + "; the hard six from " + D.sources.hard_six);
+  }
+
+  function drawChecks() {
+    rowChart(document.getElementById("checks"), D.checks, {
+      label: function (r) { return r.check; },
+      right: function (r) { return { text: r.data, color: "var(--ink-2)" }; },
+      marks: function (g, r, x, y) {
+        if (r.target !== null) sv("line", { x1: x(r.target), x2: x(r.target), y1: y - 11, y2: y + 11, style: "stroke:var(--ink-2);stroke-width:2;stroke-dasharray:3 2" }, g);
+        dumbbell(g, x, y, r.found, r.now, "var(--ink)");
+        if (r.now === null) sv("text", { x: x(r.found) + (r.found > 0.6 ? -12 : 12), y: y + 4, "text-anchor": r.found > 0.6 ? "end" : "start" }, g, "now withheld");
+      },
+      title: function (r) { return r.check + " — " + r.measure + ": was " + pct(r.found, 1) + ", now " + (r.now === null ? "withheld" : pct(r.now, 1)) + (r.target !== null ? ", target " + pct(r.target, 1) : "") + " (" + r.data + ", found " + r.date + ")"; }
+    });
+    table(document.getElementById("checks-table"), ["Found", "Number", "Measured as", "Was", "Now", "Target", "What changed", "Data"],
+      D.checks.map(function (r) { return [r.date, r.check, r.measure, pct(r.found, 1), r.now === null ? "withheld" : pct(r.now, 1), r.target === null ? "—" : pct(r.target, 1), r.what_changed, r.data]; }),
+      [false, false, false, true, true, true, false, false]);
+    source("src-checks", D.sources.checks);
+  }
+
+  function drawStrength() {
+    var svg = document.getElementById("strength"), rows = D.grader_strength; svg.textContent = "";
+    var W = widthOf(svg), barH = 18, gap = 14, top = 4;
+    var lw = Math.min(W * 0.45, Math.max.apply(null, rows.map(function (r) { return textW(svg, r.commit); })) + 14);
+    var vw = textW(svg, "10 of 12 (83%)") + 10, H = top + rows.length * (barH + gap) + 4;
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    var x = function (v) { return lw + v * (W - lw - vw); };
+    rows.forEach(function (r, i) {
+      var y = top + i * (barH + gap), share = r.caught / r.tried, g = sv("g", {}, svg);
+      sv("title", {}, g, r.commit + ": its tests caught " + r.caught + " of " + r.tried + " small changes");
+      var lab = sv("text", { x: 0, y: y + barH / 2 + 4, class: "ink" }, g, r.commit), s = r.commit;
+      while (lab.getComputedTextLength() > lw - 12 && s.length > 8) { s = s.slice(0, -2); lab.textContent = s + "…"; }
+      sv("rect", { x: x(0), y: y, width: x(1) - x(0), height: barH, rx: 4, style: "fill:var(--grid)" }, g);
+      sv("rect", { x: x(0), y: y, width: Math.max(2, x(share) - x(0)), height: barH, rx: 4, style: "fill:var(--s1)" }, g);
+      sv("text", { x: W, y: y + barH / 2 + 4, "text-anchor": "end", class: "ink" }, g, r.caught + " of " + r.tried + " (" + pct(share) + ")");
+    });
+    source("src-graders", D.sources.grader_strength + ". The last row is the weakest commit after tests were added for the gaps its misses showed");
+  }
+
+  function lineChart(svg, series, o) {
+    svg.textContent = "";
+    var W = widthOf(svg), H = 250, m = { l: textW(svg, "100%") + 10, r: o.endLabels ? Math.min(W * 0.36, Math.max.apply(null, series.map(function (s) { return textW(svg, o.endLabels(s)); })) + 12) : 14, t: 10, b: 36 };
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    var x = function (v) { return m.l + (o.xs(v) - o.xs(o.x0)) / (o.xs(o.x1) - o.xs(o.x0)) * (W - m.l - m.r); };
+    var y = function (v) { return m.t + (1 - v) * (H - m.t - m.b); };
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (v) {
+      sv("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: "gl" }, svg);
+      sv("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg, pct(v));
+    });
+    o.ticks.forEach(function (t) { sv("text", { x: x(t), y: H - 18, "text-anchor": "middle" }, svg, String(t)); });
+    sv("line", { x1: m.l, x2: W - m.r, y1: y(0), y2: y(0), class: "ax" }, svg);
+    sv("text", { x: (m.l + W - m.r) / 2, y: H - 2, "text-anchor": "middle" }, svg, o.xLabel);
+    if (o.extra) o.extra(svg, x, y, m, W, H);
+    var ends = [];
+    series.forEach(function (s) {
+      var d = s.pts.map(function (p, i) { return (i ? "L" : "M") + x(p.x).toFixed(1) + "," + y(p.y).toFixed(1); }).join("");
+      sv("path", { d: d, style: "fill:none;stroke:" + s.color + ";stroke-width:2;stroke-linejoin:round;stroke-linecap:round" }, svg);
+      s.pts.forEach(function (p) {
+        if (o.dots && !o.dots(p)) return;
+        var c = sv("circle", { cx: x(p.x), cy: y(p.y), r: 4, style: "fill:" + s.color + ";stroke:var(--surface);stroke-width:2" }, svg);
+        sv("title", {}, c, o.tip(s, p));
+      });
+      var last = s.pts[s.pts.length - 1];
+      if (o.endLabels) ends.push({ s: s, y: y(last.y), x: x(last.x) });
+    });
+    ends.sort(function (a, b) { return a.y - b.y; });
+    for (var j = 1; j < ends.length; j++) if (ends[j].y - ends[j - 1].y < 15) ends[j].y = ends[j - 1].y + 15;
+    ends.forEach(function (e) { sv("text", { x: e.x + 8, y: e.y + 4, class: "ink" }, svg, o.endLabels(e.s)); });
+  }
+
+  function drawBounds() {
+    var MARKS = [3, 6, 10, 29];
+    lineChart(document.getElementById("bounds"), [{ name: "bound", color: "var(--s1)", pts: D.bounds.map(function (b) { return { x: b.runs, y: b.fail_rate_at_most }; }) }], {
+      x0: 1, x1: 60, xs: function (v) { return v; }, ticks: [1, 10, 20, 30, 40, 50, 60], xLabel: "passes in a row, no failure",
+      dots: function (p) { return MARKS.indexOf(p.x) >= 0; },
+      tip: function (s, p) { return p.x + " straight passes: a failure rate up to " + pct(p.y) + " is still possible"; },
+      extra: function (svg, x, y) {
+        MARKS.forEach(function (n) {
+          var b = D.bounds.filter(function (q) { return q.runs === n; })[0];
+          if (b) sv("text", { x: x(n) + 8, y: y(b.fail_rate_at_most) - 8, class: "ink" }, svg, n + " → " + pct(b.fail_rate_at_most));
+        });
+      }
+    });
+    table(document.getElementById("ruleout"), ["Failure rate", "Straight passes"],
+      D.rule_out.map(function (r) { return [pct(r.failure_rate), String(r.straight_passes)]; }), [false, true]);
+  }
+
+  function drawCoverage() {
+    var C = D.coverage, COLORS = ["var(--s1)", "var(--s2)", "var(--s3)"];
+    var mixes = Array.from(new Set(C.points.map(function (p) { return p.mix; })));
+    var series = mixes.map(function (mx, i) { return { name: mx, color: COLORS[i], pts: C.points.filter(function (p) { return p.mix === mx; }).map(function (p) { return { x: p.runs, y: p.coverage }; }) }; });
+    var leg = document.getElementById("coverage-legend"); leg.textContent = "";
+    series.forEach(function (s) { leg.appendChild(el("span", {}, [el("i", { style: "background:" + s.color }), s.name])); });
+    var runs = C.points.map(function (p) { return p.runs; }), lo = Math.min.apply(null, runs), hi = Math.max.apply(null, runs);
+    lineChart(document.getElementById("coverage"), series, {
+      x0: lo, x1: hi, xs: Math.log, ticks: [2, 3, 5, 10, 20, 32], xLabel: "runs per task (" + C.tasks + " tasks, " + C.draws + " draws a point)",
+      tip: function (s, p) { return s.name + ", " + p.x + " runs a task: held " + pct(p.y, 1); },
+      extra: function (svg, x, y, m, W, H) {
+        sv("line", { x1: m.l, x2: W - m.r, y1: y(C.target), y2: y(C.target), style: "stroke:var(--ink-2);stroke-dasharray:4 3" }, svg);
+        sv("text", { x: m.l + 4, y: y(C.target) - 6 }, svg, "should hold " + pct(C.target));
+        sv("line", { x1: x(C.gate), x2: x(C.gate), y1: m.t, y2: H - m.b, style: "stroke:var(--axis);stroke-dasharray:2 3" }, svg);
+        sv("text", { x: x(C.gate) + 4, y: y(0.1) }, svg, "shown from " + C.gate);
+      }
+    });
+  }
+
+  function drawLog() {
+    var q = document.getElementById("log-q").value.trim().toLowerCase();
+    var rows = D.research_log.filter(function (r) { return !q || [r.date, r.added, r.area, r.result].join(" ").toLowerCase().indexOf(q) >= 0; });
+    table(document.getElementById("logtable"), ["Date", "What it added", "Area", "What it measured"], rows.map(function (r) { return [r.date, r.added, r.area, r.result]; }), [false, false, false, false]);
+    source("src-log", D.sources.research_log + " (" + rows.length + " of " + D.research_log.length + " runs shown)");
+  }
+  document.getElementById("log-q").addEventListener("input", drawLog);
+
+  function drawAll() { drawChanges(); drawHardSix(); drawEvolutions(); drawChecks(); drawStrength(); drawBounds(); drawCoverage(); drawLog(); }
+  var last = 0;
+  window.addEventListener("resize", function () { var w = window.innerWidth; if (Math.abs(w - last) > 40) { last = w; drawAll(); } });
+  last = window.innerWidth;
+  drawAll();
+})();
+</script>
+</body>
+</html>

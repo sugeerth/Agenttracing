@@ -23,6 +23,8 @@ adds ``verl`` and ``agent-lightning`` to the format registry (the CLI calls it).
 
 from __future__ import annotations
 
+import json as _json
+
 from typing import Any, Optional, Union
 
 from .trace import Trajectory
@@ -34,19 +36,31 @@ _TOOL_NAME_CUES: list[tuple[tuple[str, ...], str]] = [
     (("fetch", "get", "read", "open"), "read"),
 ]
 
-_CHAT_OPS = ("chat", "text_completion", "generate_content", "generate")
+#: ``realtime_inference`` and ``fetch_response`` (a background response collected later) carry the model's
+#: output messages as a chat does
+_CHAT_OPS = ("chat", "text_completion", "generate_content", "generate", "realtime_inference", "fetch_response")
 
 #: operations that describe an agent thinking or planning rather than acting.
 #: ``invoke_agent`` is how the GenAI conventions mark an agent turn.
-_AGENT_OPS = ("invoke_agent", "invoke_workflow")
+_AGENT_OPS = ("invoke_agent", "invoke_workflow", "invoke_runner")
 
 #: operations that fetch context rather than call a tool.
-_RETRIEVAL_OPS = ("embeddings", "retrieve", "search", "create_memory",
-                  "get_memory", "query_memory")
+_RETRIEVAL_OPS = ("embeddings", "retrieve", "retrieval", "search", "create_memory",
+                  "get_memory", "query_memory", "search_memory", "update_memory", "upsert_memory")
+
+#: an agent's planning span (``gen_ai.plan.internal``)
+_PLAN_OPS = ("plan",)
 
 #: operations that carry no step of their own (setup / teardown bookkeeping).
 _META_OPS = ("create_agent", "create_memory_store", "delete_memory_store",
-             "delete_memory")
+             "delete_memory", "user_speech")
+
+
+def _is_agent_op(op: Any) -> bool:
+    """An agent turn: the named operations, or ``invoke_{framework_entrypoint}``, the pattern the
+    conventions give a framework's own entry point (``invoke_crew``)."""
+    op = str(op or "")
+    return op in _AGENT_OPS or (op.startswith("invoke_") and len(op) > len("invoke_"))
 
 #: attribute keys carrying a tool call's arguments, most-specific first.
 #: Real exporters disagree: the GenAI semantic conventions use
@@ -63,6 +77,10 @@ _TOOL_OUTPUT_KEYS = (
     "tool.result", "tool.output", "output",
 )
 
+#: what a retrieval or memory span searched for, and what it found (``gen_ai.retrieval.*``, ``gen_ai.memory.*``)
+_RETRIEVAL_INPUT_KEYS = ("gen_ai.retrieval.query.text", "gen_ai.memory.query.text") + _TOOL_INPUT_KEYS
+_RETRIEVAL_OUTPUT_KEYS = ("gen_ai.retrieval.documents", "gen_ai.memory.records") + _TOOL_OUTPUT_KEYS
+
 #: attribute keys carrying model prompt / completion text.
 _PROMPT_KEYS = ("gen_ai.prompt", "gen_ai.input.messages", "gen_ai.request.prompt")
 _COMPLETION_KEYS = (
@@ -70,26 +88,81 @@ _COMPLETION_KEYS = (
 )
 
 
-def _first_attr(attrs: dict, keys: tuple[str, ...]) -> str:
-    """First non-empty attribute value among ``keys``, stringified.
+def _part_text(part: Any) -> str:
+    """One part of a GenAI message as text: its content, a tool call as ``name(arguments)``, a tool's
+    response as the response. Reasoning parts are left out, so an answer is what the model said."""
+    if not isinstance(part, dict):
+        return str(part) if part is not None else ""
+    kind = str(part.get("type") or "")
+    if kind == "reasoning":
+        return ""
+    if kind == "tool_call":
+        args = part.get("arguments")
+        args = args if isinstance(args, str) else _json.dumps(args, ensure_ascii=False, sort_keys=True) if args is not None else ""
+        return f"{part.get('name') or 'tool'}({args})"
+    if kind == "tool_call_response":
+        got = part.get("response", part.get("result"))
+        return got if isinstance(got, str) else _json.dumps(got, ensure_ascii=False, sort_keys=True)
+    for key in ("content", "text", "uri", "file_id"):
+        if isinstance(part.get(key), str) and part[key]:
+            return part[key]
+    return ""
 
-    Lists (OTLP array values, message arrays) are flattened to text so the
-    step still carries its content rather than a repr.
+
+def _is_message(value: Any) -> bool:
+    return isinstance(value, dict) and (isinstance(value.get("parts"), list) or "role" in value)
+
+
+def _genai_text(value: Any) -> str:
+    """An attribute's content as text.
+
+    The GenAI conventions give messages as ``{"role", "parts": [...]}`` objects, structured on the span
+    (and, before November 2026, sometimes a JSON string of them). Each message becomes the text of its
+    parts, one message a line. Tool arguments and results that are objects become sorted JSON; anything
+    else is its string.
+    """
+    value = _otlp_value(value)
+    if isinstance(value, str):
+        head = value.lstrip()[:1]
+        if head in ("[", "{"):
+            try:
+                parsed = _json.loads(value)
+            except ValueError:
+                return value
+            if (isinstance(parsed, list) and parsed and all(_is_message(m) for m in parsed)) or _is_message(parsed):
+                return _genai_text(parsed)
+        return value
+    if _is_message(value):
+        value = [value]
+    if isinstance(value, (list, tuple)):
+        lines = []
+        for item in value:
+            item = _otlp_value(item)
+            if _is_message(item):
+                parts = item.get("parts")
+                text = (" ".join(t for t in (_part_text(p) for p in parts) if t) if isinstance(parts, list)
+                        else _genai_text(item.get("content")))
+            elif isinstance(item, (dict, list)):
+                text = _json.dumps(item, ensure_ascii=False, sort_keys=True)
+            else:
+                text = str(item) if item is not None else ""
+            if text:
+                lines.append(text)
+        return "\n".join(lines)
+    if isinstance(value, dict):
+        return _json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return "" if value is None else str(value)
+
+
+def _first_attr(attrs: dict, keys: tuple[str, ...]) -> str:
+    """First non-empty attribute value among ``keys``, as text (:func:`_genai_text`).
+
+    Lists, message arrays and structured values become their content rather than a repr.
     """
     for key in keys:
-        if key not in attrs:
+        if key not in attrs or attrs[key] is None:
             continue
-        value = attrs[key]
-        if value is None:
-            continue
-        if isinstance(value, (list, tuple)):
-            parts = [str(_otlp_value(v)) for v in value if v is not None]
-            text = " ".join(p for p in parts if p)
-        elif isinstance(value, dict):
-            text = str(_otlp_value(value))
-        else:
-            text = str(value)
-        text = text.strip()
+        text = _genai_text(attrs[key]).strip()
         if text:
             return text
     return ""
@@ -128,14 +201,26 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _otlp_value(value: Any) -> Any:
-    """Unwrap an OTLP AnyValue wrapper ({"stringValue": "x"}) to a plain value."""
-    if isinstance(value, dict):
-        for key in ("stringValue", "intValue", "doubleValue", "boolValue"):
-            if key in value:
-                return value[key]
-        if "arrayValue" in value:
-            values = (value["arrayValue"] or {}).get("values", []) or []
-            return [_otlp_value(v) for v in values]
+    """Unwrap an OTLP AnyValue wrapper ({"stringValue": "x"}) to a plain value.
+
+    Structured values come as ``kvlistValue`` (an object) inside ``arrayValue`` (a list), which the GenAI
+    conventions require for messages and tool calls since November 2026. OTLP JSON writes a 64-bit
+    ``intValue`` as a string, and ``bytesValue`` as base64 text, kept as it is.
+    """
+    if isinstance(value, dict) and len(value) == 1:
+        (key, inner), = value.items()
+        if key in ("stringValue", "doubleValue", "boolValue", "bytesValue"):
+            return inner
+        if key == "intValue":
+            try:
+                return int(inner)
+            except (TypeError, ValueError):
+                return inner
+        if key == "arrayValue":
+            return [_otlp_value(v) for v in ((inner or {}).get("values") or [])]
+        if key == "kvlistValue":
+            return {str(kv.get("key")): _otlp_value(kv.get("value"))
+                    for kv in ((inner or {}).get("values") or []) if isinstance(kv, dict) and "key" in kv}
     return value
 
 
@@ -212,8 +297,12 @@ def from_otel_genai(
     Returns ``(trajectory_dict, warnings)``; the dict is pre-validated.
     """
     warnings: list[str] = []
-    ordered = sorted(spans, key=lambda s: (_span_time(s, "start"),
-                                           s.get("name", "")))
+    # a span AgentDiff exported carries its step's index: that order is exact even
+    # when steps share a start time (a trace with no recorded latencies)
+    def _order(s: dict) -> tuple:
+        index = str(_span_attrs(s).get("agentdiff.step.index", ""))   # OTLP/JSON carries ints as strings
+        return (_span_time(s, "start"), int(index) if index.isdigit() else -1, s.get("name", ""))
+    ordered = sorted(spans, key=_order)
     steps: list[dict] = []
     total_in = total_out = 0
 
@@ -230,7 +319,7 @@ def from_otel_genai(
     for span in ordered:
         attrs_ = _span_attrs(span)
         op_ = attrs_.get("gen_ai.operation.name") or (str(span.get("name", "")).split(" ")[0].lower())
-        if op_ in _AGENT_OPS and _span_id(span):
+        if _is_agent_op(op_) and _span_id(span):
             agent_spans[_span_id(span)] = span
     root_agent_ids = {sid for sid, sp in agent_spans.items()
                       if not any(anc in agent_spans for anc in _ancestors(sp, by_id))}
@@ -246,9 +335,12 @@ def from_otel_genai(
         return {"id": own, "agent": str(_span_attrs(agent_spans[own]).get("gen_ai.agent.name") or agent_spans[own].get("name") or own),
                 "parent": parent}
 
+    explicit_last = False
     for span in ordered:
         name = str(span.get("name", ""))
         attrs: dict[str, Any] = _span_attrs(span)
+        if attrs.get("agentdiff.root") is True:
+            continue  # the run itself, as AgentDiff exports it: its steps are the spans beneath it
         op = attrs.get("gen_ai.operation.name")
         if not op:
             head = name.split(" ")[0].lower() if name else ""
@@ -279,9 +371,14 @@ def from_otel_genai(
         elif op in _RETRIEVAL_OPS:
             step_type = "search" if op in ("search",) else "retrieve"
             step_name = str(attrs.get("gen_ai.tool.name", op))
-            step_input = _first_attr(attrs, _TOOL_INPUT_KEYS) or name
-            step_output = _first_attr(attrs, _TOOL_OUTPUT_KEYS)
-        elif op in _AGENT_OPS:
+            step_input = _first_attr(attrs, _RETRIEVAL_INPUT_KEYS) or name
+            step_output = _first_attr(attrs, _RETRIEVAL_OUTPUT_KEYS)
+        elif op in _PLAN_OPS:
+            step_type = "plan"
+            step_name = str(attrs.get("gen_ai.agent.name") or op)
+            step_input = _first_attr(attrs, _PROMPT_KEYS) or name
+            step_output = _first_attr(attrs, _COMPLETION_KEYS)
+        elif _is_agent_op(op):
             # An agent turn: planning if it carries no tool, else reasoning.
             step_type = "plan" if not attrs.get("gen_ai.tool.name") else "reason"
             step_name = str(attrs.get("gen_ai.agent.name", op))
@@ -298,8 +395,20 @@ def from_otel_genai(
             )
             continue
 
+        # an AgentDiff export names the step as it was, where the conventions have no word for it
+        explicit_last = bool(attrs.get("agentdiff.step.type"))
+        if explicit_last:
+            step_type = str(attrs["agentdiff.step.type"])
+            # its text exactly as exported, whitespace and all, or none when the export left content out
+            keys = ("gen_ai.prompt", "gen_ai.completion") if op in _CHAT_OPS else (
+                "gen_ai.tool.call.arguments", "gen_ai.tool.call.result")
+            step_input, step_output = (str(attrs.get(k, "")) for k in keys)
+        if attrs.get("agentdiff.step.name"):
+            step_name = str(attrs["agentdiff.step.name"])
         total_in += tok_in
         total_out += tok_out
+        if attrs.get("agentdiff.step.tokens") is not None:
+            tok_in, tok_out = 0, int(attrs["agentdiff.step.tokens"] or 0)
         step = {
             "index": len(steps),
             "type": step_type,
@@ -311,6 +420,8 @@ def from_otel_genai(
             "quality": None,
             "note": None,
         }
+        if str((span.get("status") or {}).get("code")) in ("2", "STATUS_CODE_ERROR"):
+            step["error"] = True
         delegated = delegation_of(span)
         if delegated:
             step["span"] = delegated
@@ -318,7 +429,8 @@ def from_otel_genai(
 
     if not steps:
         raise ValueError("no spans could be mapped to steps")
-    steps[-1]["type"] = "answer"
+    if not explicit_last:
+        steps[-1]["type"] = "answer"
     answer_text = steps[-1]["output"] or steps[-1]["input"]
 
     outcome = outcome or {}
@@ -356,6 +468,49 @@ def from_otel_genai(
     }
     Trajectory.from_json(trajectory)  # validate before handing back
     return trajectory, warnings
+
+
+def is_otlp(data) -> bool:
+    """Whether ``data`` is an OTLP/JSON document (a ``resourceSpans`` list at the top)."""
+    return isinstance(data, dict) and isinstance(data.get("resourceSpans"), list)
+
+
+def otlp_spans(doc: dict) -> list:
+    """Every span of an OTLP/JSON document (``resourceSpans`` → ``scopeSpans`` → ``spans``), in file order."""
+    return [span for rs in doc.get("resourceSpans") or [] for ss in rs.get("scopeSpans") or []
+            for span in ss.get("spans") or [] if isinstance(span, dict)]
+
+
+def from_otlp(doc: dict, agent: Union[str, dict, None] = None, task: Union[str, dict, None] = None,
+              outcome: Optional[dict] = None) -> tuple:
+    """A standard OTLP/JSON document, as an OpenTelemetry Collector's file exporter or
+    :func:`agentdiff.otlp_export.to_otlp` writes it, to a SCHEMA trajectory. The agent, task and outcome come
+    from the arguments, else from the root agent span's attributes; a trace AgentDiff exported comes back with
+    its own trace id, totals, task and outcome."""
+    spans = otlp_spans(doc)
+    root = next((s for s in spans if _span_attrs(s).get("agentdiff.root") is True), None)
+    if root is None:
+        root = next((s for s in spans if _is_agent_op(_span_attrs(s).get("gen_ai.operation.name"))
+                     and not _parent_id(s)), None)
+    ra = _span_attrs(root) if root else {}
+    if agent is None:
+        agent = {"name": str(ra.get("gen_ai.agent.name") or "otel-agent"),
+                 "model": str(ra.get("gen_ai.request.model") or ""), "version": str(ra.get("agentdiff.agent.version") or "")}
+    if task is None:
+        task = {"id": str(ra.get("agentdiff.task.id") or "task"), "prompt": str(ra.get("agentdiff.task.prompt") or ""),
+                "expected": ra.get("agentdiff.task.expected")}
+    if outcome is None and isinstance(ra.get("agentdiff.outcome.success"), bool):
+        outcome = {"success": ra["agentdiff.outcome.success"]}
+        if ra.get("agentdiff.outcome.answer") is not None:
+            outcome["answer"] = str(ra["agentdiff.outcome.answer"])
+    traj, warnings = from_otel_genai(spans, agent=agent, task=task, outcome=outcome)
+    if ra.get("agentdiff.root") is True:
+        if ra.get("agentdiff.trace_id"):
+            traj["trace_id"] = str(ra["agentdiff.trace_id"])
+        traj["totals"]["input_tokens"] = int(ra.get("gen_ai.usage.input_tokens") or 0)
+        traj["totals"]["output_tokens"] = int(ra.get("gen_ai.usage.output_tokens") or 0)
+        Trajectory.from_json(traj)
+    return traj, warnings
 
 
 def from_openai_messages(
@@ -1088,7 +1243,7 @@ def from_agent_lightning(record: Union[dict, list], agent: Optional[str] = None)
                 agent_from_spans = str(attrs[key])
         if kind == "agent" and not agent_from_spans:
             agent_from_spans = str(attrs.get("operation.name") or name or "")
-        if kind == "agent" or op in _AGENT_OPS:
+        if kind == "agent" or _is_agent_op(op):
             counters["agent_spans"] += 1
             continue
 

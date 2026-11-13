@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 from . import sections as _sections
+from .diagnosis import committed_step
 
 VERSION = 1
 
@@ -159,7 +160,7 @@ def step_labels(report: dict) -> list:
             labels = []
             w = what.get(i) or {}
             on_fault = (subject == side and i in account) or (attr.get("failed_agent") == side and i in chain)
-            if on_fault and dec.get("step") == i and subject == side:
+            if on_fault and committed_step(report.get("diagnosis") or {}) == i and subject == side:
                 labels.append({"label": "fault_enters", "source": "diagnosis.decisive_step"})
             elif on_fault and step.get("type") == "answer" and failed:
                 labels.append({"label": "wrong_answer", "source": "diagnosis.causal_account"})

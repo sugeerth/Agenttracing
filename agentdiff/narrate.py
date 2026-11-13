@@ -39,6 +39,8 @@ import json
 import re
 from typing import Callable, Optional
 
+from .diagnosis import committed_step
+
 #: fact ids look like F1, F2, ... — chosen to be citable inline as [F3].
 _FACT_ID = re.compile(r"\[F(\d+)\]")
 
@@ -208,7 +210,7 @@ def narration_brief(report: dict) -> dict:
                   "the runner-up by the lead margin; see the discriminating "
                   "checks on each hypothesis", None)
         decisive = diagnosis.get("decisive_step") or {}
-        if decisive.get("step") is not None:
+        if committed_step(diagnosis) is not None:
             _fact(facts, "diagnosis.decisive_step",
                   f"decisive step {decisive['step']} "
                   f"({decisive.get('criterion')}): {decisive.get('basis')}",

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .diagnosis import committed_step
 from .report import compare
 from .statistics import paired_inference as _paired_inference
 from .trace import Trajectory
@@ -435,7 +436,7 @@ def fleet_analysis(
                 diag = report.get("diagnosis") or {}
                 decisive = diag.get("decisive_step") or {}
                 if (diag.get("mode") == "single_failure"
-                        and decisive.get("step") is not None):
+                        and committed_step(diag) is not None):
                     decisive_note = (
                         f"decisive step {decisive['step']} on "
                         f"{report['task']['id']} for "

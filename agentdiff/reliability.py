@@ -78,10 +78,14 @@ bytes.
 from __future__ import annotations
 
 import math
+import random
 from typing import Optional, Sequence
 
+from .similarity import lcs_length
 from .stability import _cv, _levenshtein
-from .statistics import pass_at_k
+from ._stats import percentile_interval
+from .statistics import (BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, central_range, exact_interval, fail_rate_at_most,
+                         pass_at_k, poisson_binomial, runs_to_rule_out, wilson_interval)
 from .trace import HARNESS_TERMINATIONS, Trajectory
 from . import sections as _sections
 
@@ -169,6 +173,68 @@ def sequence_consistency(runs: Sequence[Trajectory]) -> Optional[float]:
         for j in range(i + 1, len(seqs))
     ]
     return round(sum(scores) / len(scores), 4)
+
+
+def path_split_pair(a: Sequence[str], b: Sequence[str]) -> dict:
+    """Where two action paths part: other actions, or the same ones reordered.
+
+    ``shared`` is the multiset overlap (an action taken twice in both runs
+    counts twice) and ``lcs`` the longest common subsequence, so
+    ``lcs <= shared <= max(|a|, |b|)``.  The common-subsequence agreement
+    ``lcs / max`` then splits exactly into two losses that add up:
+
+    - ``actions``: ``1 - shared / max``, the share of the longer path made of
+      actions the other run never took;
+    - ``order``: ``(shared - lcs) / max``, actions both runs took, but in an
+      order that cannot be lined up.
+    """
+    longest = max(len(a), len(b))
+    if longest == 0:
+        return {"agree": 1.0, "actions": 0.0, "order": 0.0}
+    left: dict = {}
+    for x in a:
+        left[x] = left.get(x, 0) + 1
+    shared = 0
+    for x in b:
+        if left.get(x):
+            left[x] -= 1
+            shared += 1
+    lcs = lcs_length(list(a), list(b))
+    return {"agree": lcs / longest, "actions": 1 - shared / longest,
+            "order": (shared - lcs) / longest}
+
+
+def path_split(runs: Sequence[Trajectory]) -> Optional[dict]:
+    """Mean of :func:`path_split_pair` over every pair of ``runs``.
+
+    None below two runs, as for :func:`sequence_consistency`.  The three
+    means still add to 1 (rounding aside), so the split never claims more
+    disagreement than there is.
+    """
+    if len(runs) < 2:
+        return None
+    seqs = [action_sequence(t) for t in runs]
+    pairs = [path_split_pair(seqs[i], seqs[j])
+             for i in range(len(seqs)) for j in range(i + 1, len(seqs))]
+    out = {key: round(sum(p[key] for p in pairs) / len(pairs), 4)
+           for key in ("agree", "actions", "order")}
+    out["pairs"] = len(pairs)
+    return out
+
+
+def path_split_says(split: Optional[dict]) -> Optional[str]:
+    """One plain sentence for a split, or None when there is none."""
+    if not split:
+        return None
+    lost = split["actions"] + split["order"]
+    if lost < 0.005:
+        return "repeated runs took the same actions in the same order"
+    part = split["actions"] / lost
+    lead = ("mostly other actions" if part >= 2 / 3 else
+            "mostly the same actions in another order" if part <= 1 / 3 else
+            "both other actions and another order")
+    return (f"repeated runs' paths agree {split['agree']:.0%}; where they part, it is "
+            f"{lead} ({split['actions']:.0%} other actions, {split['order']:.0%} order)")
 
 
 def _resource_values(runs: Sequence[Trajectory]) -> dict[str, list[float]]:
@@ -400,6 +466,192 @@ def split_harness_failures(
 # per-agent assembly
 # --------------------------------------------------------------------------
 
+def _task_interval(values: Sequence[float]) -> Optional[list]:
+    """95% percentile bootstrap of the mean of per-task values, tasks resampled
+    with replacement under the fixed seed; None for fewer than 2 tasks."""
+    if len(values) < 2:
+        return None
+    rng = random.Random(BOOTSTRAP_SEED)
+    n = len(values)
+    means = [sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(BOOTSTRAP_SAMPLES)]
+    lo, hi = percentile_interval(means, CONFIDENCE)
+    return [round(lo, 4), round(hi, 4)]
+
+
+def unbroken_records(per_task: list) -> dict:
+    """What a task that passed (or failed) every run can still be. A suite reports such tasks as consistent;
+    with few runs each, the exact bound says how much inconsistency is still possible, and how many straight
+    passes would rule a given failure rate out. The worst case is the task with the fewest runs."""
+    passed = [r for r in per_task if r.get("runs") and r["successes"] == r["runs"]]
+    failed = [r for r in per_task if r.get("runs") and r["successes"] == 0]
+    fewest = min((r["runs"] for r in passed), default=None)
+    out = {"passed_every_run": len(passed), "failed_every_run": len(failed), "fewest_runs": fewest,
+           "fail_rate_at_most": fail_rate_at_most(fewest) if fewest else None,
+           "runs_to_rule_out": {"0.10": runs_to_rule_out(0.10), "0.05": runs_to_rule_out(0.05),
+                                "0.01": runs_to_rule_out(0.01)},
+           "basis": "one-sided exact 95% bound: after n straight passes, a failure rate f is ruled out once "
+                    "(1 - f)^n <= 0.05"}
+    out["says"] = (f"{len(passed)} task(s) passed every run; with {fewest} run(s), any of them could still fail up "
+                   f"to {out['fail_rate_at_most']:.0%} of the time. Ruling out a 10% failure rate takes "
+                   f"{out['runs_to_rule_out']['0.10']} straight passes, 5% takes {out['runs_to_rule_out']['0.05']}"
+                   if passed else "no task passed every run")
+    return out
+
+
+#: the failure rate a run plan aims to rule out on every task that has not shown both outcomes
+PLAN_TARGET = 0.10
+
+
+def run_plan(per_task: list, target: float = PLAN_TARGET, budget: Optional[int] = None) -> dict:
+    """How many more runs each task needs before its record says something at ``target``, and where more runs
+    cannot help. A task that has both passed and failed is already shown to be inconsistent: more runs can
+    sharpen its rate but cannot undo that. A task that passed every run needs ``runs_to_rule_out(target)``
+    straight passes in all before a failure rate of ``target`` is ruled out (the same for a pass rate after
+    straight failures); one break and it is shown flaky instead. With a per-task ``budget`` of runs, a task
+    whose count is above the budget can only be broken by more runs, never cleared. Counts only; nothing here
+    picks a task to run or stops a run."""
+    need = runs_to_rule_out(target)
+    rows, more_total = [], 0
+    for r in per_task:
+        n, c = r.get("runs") or 0, r.get("successes") or 0
+        if not n:
+            continue
+        if 0 < c < n:
+            status, more = "shown inconsistent", 0
+        else:
+            more = max(0, need - n)
+            status = ("ruled out" if not more else "open") + (": passed every run" if c == n
+                                                              else ": failed every run")
+        row = {"task": r["task"], "runs": n, "status": status, "more_runs": more}
+        if budget is not None and more:
+            row["can_clear_within_budget"] = need <= budget
+        more_total += more
+        rows.append(row)
+    open_rows = [r for r in rows if r["more_runs"]]
+    out = {"target": target, "budget": budget, "runs_to_rule_out": need,
+           "tasks": len(rows),
+           "shown_inconsistent": sum(1 for r in rows if r["status"] == "shown inconsistent"),
+           "ruled_out": sum(1 for r in rows if r["status"].startswith("ruled out")),
+           "open": len(open_rows), "more_runs": more_total, "per_task": rows,
+           "basis": f"one-sided exact 95%: {need} straight passes rule out a {target:.0%} failure rate; "
+                    "a task with both outcomes is already inconsistent, whatever more runs show"}
+    if budget is not None:
+        out["cannot_clear_within_budget"] = sum(1 for r in open_rows if not r["can_clear_within_budget"])
+    out["says"] = (f"{len(open_rows)} task(s) have an unbroken record that does not yet rule out a {target:.0%} "
+                   f"rate: {more_total} more run(s) in all, if every one keeps the record"
+                   + (f". {out['shown_inconsistent']} task(s) are already shown inconsistent and need none to show it"
+                      if out["shown_inconsistent"] else "")
+                   if open_rows else
+                   f"every task is either shown inconsistent or has ruled out a {target:.0%} rate")
+    if budget is not None and out["cannot_clear_within_budget"]:
+        out["says"] += (f". With {budget} runs a task, {out['cannot_clear_within_budget']} of them cannot be "
+                        f"cleared at all: more runs could only break the record")
+    return out
+
+
+#: how much of a rerun's flip count the range holds
+FLIP_RANGE = 0.90
+#: the fewest runs at the thinnest task for which the range is given. Measured on synthetic suites (10 to 100
+#: tasks; settled, spread-out and reliable task mixes): from 10 runs it held 89-97% of fresh reruns, at 8 as
+#: little as 87%, at 3 about 73%, at 2 about 20%, because a rate read from a few runs is taken as known
+FLIP_RANGE_MIN_RUNS = 10
+
+
+def rerun_flips(per_task: list, coverage: float = FLIP_RANGE) -> dict:
+    """If the whole suite ran once more, one run a task, with nothing changed: how many tasks would come out
+    differently from a run before it. For one task the chance is that two of its runs disagree,
+    2p(1 - p); its unbiased estimate from c passes in n runs is the share of pairs of its runs that disagree,
+    2c(n - c) / (n(n - 1)). The flips over the suite are then a sum of independent yes-or-no events, so their
+    count has an exact (Poisson-binomial) distribution, and the range holds ``coverage`` of it.
+
+    A gap between two single runs of the suite that sits inside the range is what rerunning alone produces.
+    The expected count is unbiased at any number of runs; the range treats each task's estimate as its true
+    chance, so it is given only from :data:`FLIP_RANGE_MIN_RUNS` runs at the thinnest task. A task whose runs
+    never disagreed counts 0, though a few runs leave room for a lot (see ``unbroken_records``). Tasks with
+    fewer than 2 runs give no estimate and are left out, and counted. Counts only; nothing here decides."""
+    chances, rows, skipped, thinnest = [], [], 0, None
+    for r in per_task:
+        n, c = r.get("runs") or 0, r.get("successes") or 0
+        if n < 2:
+            skipped += 1
+            continue
+        q = 2 * c * (n - c) / (n * (n - 1))
+        chances.append(q)
+        thinnest = n if thinnest is None else min(thinnest, n)
+        if q:
+            rows.append({"task": r["task"], "runs": n, "successes": c, "flip_chance": round(q, 4)})
+    out = {"tasks": len(chances), "tasks_without_two_runs": skipped, "coverage": coverage, "fewest_runs": thinnest,
+           "tasks_that_can_flip": len(rows), "per_task": sorted(rows, key=lambda x: (-x["flip_chance"], x["task"])),
+           "basis": "per task, the share of pairs of its runs that disagree (unbiased for 2p(1-p)); over tasks, "
+                    "the exact distribution of a sum of independent chances"}
+    if not chances:
+        out.update(expected_flips=None, expected_share=None, range=None,
+                   range_reason="no task has 2 or more runs",
+                   says="no task has 2 or more runs, so a rerun's flips cannot be estimated")
+        return out
+    expected = sum(chances)
+    band = (central_range(poisson_binomial(chances), coverage) if thinnest >= FLIP_RANGE_MIN_RUNS else None)
+    out.update(expected_flips=round(expected, 2), expected_share=round(expected / len(chances), 4), range=band,
+               range_reason=None if band else
+               f"the thinnest task has {thinnest} runs; the range is given from {FLIP_RANGE_MIN_RUNS}, below which "
+               f"it held too few reruns in simulation")
+    if not rows:
+        out["says"] = (f"no task has both passed and failed, so a rerun of the {len(chances)} task(s) is estimated "
+                       f"to change none; with {thinnest} run(s) at the thinnest task, that is a floor")
+        return out
+    out["says"] = (f"run the suite once more with nothing changed and about {expected:.1f} of {len(chances)} "
+                   f"task(s) would come out differently"
+                   + (f" ({coverage:.0%} range {band[0]} to {band[1]})" if band else
+                      f" (no range: {thinnest} run(s) at the thinnest task, {FLIP_RANGE_MIN_RUNS} needed)")
+                   + f"; {len(rows)} task(s) have both passed and failed")
+    return out
+
+
+#: below this many tasks the plan says its ICC is rough (measured: see runs_or_tasks)
+ROUGH_ICC_TASKS = 20
+
+
+def runs_or_tasks(icc: Optional[float], tasks: int, runs_per_task: float, budget: Optional[float] = None) -> dict:
+    """What the next runs buy for an agent's pass rate: more runs on the same tasks, or new tasks.
+
+    A task's runs share its difficulty, so they are correlated (the ICC, ``icc``). For an agent's mean pass rate
+    over ``tasks`` tasks with ``runs_per_task`` runs each, the interval's width is proportional to
+    sqrt((icc + (1 - icc) / k) / T). Spending ``budget`` more runs (default: as many again as now) on more runs
+    per task shrinks only the second term; spending them on new tasks, drawn like the ones there, shrinks the
+    whole, so for a fixed budget new tasks never buy less; ``runs_share_of_tasks_gain`` says how much of their
+    gain more runs of these tasks still buy (all of it when the ICC is 0, none of it at 1). Also given: the effective number of independent runs, T·k / (1 + (k - 1)·icc), and the narrowest the
+    interval can get with endless runs on these tasks. The ICC here comes from the same few tasks, so it is
+    itself uncertain; the figures are a plan, and decide nothing."""
+    out = {"icc": icc, "tasks": tasks, "runs_per_task": runs_per_task, "budget": budget, "more_runs": None,
+           "more_tasks": None, "runs_share_of_tasks_gain": None, "effective_runs": None, "floor_with_endless_runs": None,
+           "basis": "width proportional to sqrt((icc + (1 - icc)/k) / T); the ICC is estimated from these tasks",
+           "says": None}
+    if icc is None or tasks < 2 or not runs_per_task:
+        out["says"] = "no plan: the ICC could not be estimated from these runs"
+        return out
+    rho, k, t = min(1.0, max(0.0, float(icc))), float(runs_per_task), float(tasks)
+    budget = float(budget) if budget is not None else t * k
+    width = lambda tt, kk: math.sqrt((rho + (1 - rho) / kk) / tt)
+    now = width(t, k)
+    more_runs = width(t, k + budget / t) / now
+    more_tasks = width(t + budget / k, k) / now
+    floor = math.sqrt(rho / (rho + (1 - rho) / k)) if rho > 0 else 0.0
+    out.update(budget=round(budget, 2), more_runs=round(1 - more_runs, 4), more_tasks=round(1 - more_tasks, 4),
+               effective_runs=round(t * k / (1 + (k - 1) * rho), 2), floor_with_endless_runs=round(1 - floor, 4))
+    out["runs_share_of_tasks_gain"] = round((1 - more_runs) / (1 - more_tasks), 4) if more_tasks < 1 else None
+    out["says"] = (f"{budget:.0f} more run(s) narrow the pass-rate interval by {1 - more_runs:.0%} as more runs of these "
+                   f"{tasks} task(s), against {1 - more_tasks:.0%} as new tasks like them, so runs of these tasks buy "
+                   f"{out['runs_share_of_tasks_gain']:.0%} of what new tasks would. With an ICC of {rho:.2f}, the "
+                   f"{t * k:.0f} run(s) here count as {out['effective_runs']:.1f} independent ones, and endless runs of "
+                   f"these tasks could narrow it by at most {1 - floor:.0%}. (For pass^k and flaky tasks, more runs "
+                   f"of the same tasks are what is needed.)")
+    out["rough"] = tasks < ROUGH_ICC_TASKS
+    if out["rough"]:
+        out["says"] += (f" The ICC from {tasks} task(s) is rough: in simulation, a pilot of 6 tasks misjudged this share "
+                        f"by 0.11 to 0.32 typically, and one of 20 tasks by 0.02 to 0.21.")
+    return out
+
+
 def _mean(values: Sequence[float]) -> float:
     return sum(values) / len(values)
 
@@ -477,6 +729,7 @@ def _agent_reliability(name: str,
     cov_by_k: dict[int, list[float]] = {k: [] for k in range(1, max_k + 1)}
     outcome_scores: list[float] = []
     sequence_scores: list[float] = []
+    split_scores: list[dict] = []
     resource_scores: list[float] = []
     resource_totals: dict[str, list[float]] = {}
     icc_groups: list[list[float]] = []
@@ -508,6 +761,9 @@ def _agent_reliability(name: str,
         seq = sequence_consistency(successful)
         if seq is not None:
             sequence_scores.append(seq)
+        split = path_split(successful)
+        if split is not None:
+            split_scores.append(split)
 
         resources = resource_consistency(runs)
         if resources["value"] is not None:
@@ -521,6 +777,15 @@ def _agent_reliability(name: str,
             "runs_excluded": len(runs_by_task[tid]) - n,
             "successes": c,
             "success_rate": round(c / n, 4) if n else None,
+            # what these runs can and cannot rule out about this one task
+            "success_rate_exact95": exact_interval(c, n),
+            "unbroken": (None if not n or 0 < c < n else
+                         {"record": "passed every run" if c == n else "failed every run",
+                          "runs": n,
+                          "other_rate_at_most": fail_rate_at_most(n),
+                          "means": (f"it could still fail up to {fail_rate_at_most(n):.0%} of the time" if c == n
+                                    else f"it could still pass up to {fail_rate_at_most(n):.0%} of the time")
+                          + " (95%, one-sided, exact)"}),
             "pass_hat_k": hat_curve,
             "pass_at_k": cov_curve,
             "outcome_consistency": {
@@ -533,6 +798,7 @@ def _agent_reliability(name: str,
                 "value": seq,
                 "runs_compared": len(successful),
                 "basis": "successful runs only (HAL)",
+                "split": split,
                 "reason": None if seq is not None
                 else f"needs at least 2 successful runs, has {len(successful)}",
             },
@@ -554,23 +820,34 @@ def _agent_reliability(name: str,
         "no task has an eligible run after excluding harness failures"
     )
 
-    # a plug-in interval per k: the 95% Wilson interval of the pooled
-    # per-run rate raised to the k-th power.  Stated as plug-in because it
-    # treats runs as exchangeable across tasks; the curve's own value stays
-    # the tau-bench mean over tasks
-    from .statistics import wilson_interval
+    # an interval per k, the envelope of two that each fail where the other
+    # holds.  Resampling the tasks (seeded) and averaging each one's own
+    # C(c,k)/C(n,k) follows tasks that differ in how often they pass: the mean
+    # of p^k is not the k-th power of the mean p, so the pooled per-run rate
+    # raised to k sits below the curve whenever they differ (all-or-nothing
+    # tasks: 0.5 against [0.02, 0.18] at k=4).  But resampling tasks cannot see
+    # a task's own run-to-run noise, and when every task scored alike it has
+    # no spread at all, which the pooled interval does.  The wider bound of
+    # each is kept.
     lo, hi = wilson_interval(successes_total, runs_used) if runs_used else (0.0, 1.0)
     for point in hat_curve_all:
         if point["value"] is None:
             point["ci95"] = None
-        else:
-            point["ci95"] = [round(lo ** point["k"], 4), round(hi ** point["k"], 4)]
+            continue
+        over_tasks = _task_interval(hat_by_k[point["k"]])
+        # the estimate itself is kept inside too: C(c,k)/C(n,k) is 0 below k
+        # successes, where a pooled rate raised to k is not
+        bounds = [lo ** point["k"], hi ** point["k"], point["value"]] + (over_tasks or [])
+        point["ci95"] = [round(min(bounds), 4), round(max(bounds), 4)]
     pass_hat_block = {
         "curve": hat_curve_all,
         "max_k": max_k,
-        "ci95_basis": ("plug-in: the 95% Wilson interval of the pooled per-run "
-                       "success rate, raised to k; treats runs as exchangeable "
-                       "across tasks"),
+        "ci95_basis": ("the wider bound of two 95% intervals: tasks resampled "
+                       "with replacement (seeded), each contributing its own "
+                       "C(c,k)/C(n,k), which follows tasks that differ; and the "
+                       "Wilson interval of the pooled per-run rate raised to k, "
+                       "which sees run noise when tasks scored alike; the estimate "
+                       "itself always inside"),
         "value_at_max_k": hat_curve_all[-1]["value"] if hat_curve_all else None,
         "tasks": len(scored_tasks),
         "runs": runs_used,
@@ -608,6 +885,17 @@ def _agent_reliability(name: str,
         "source": "HAL trajectory consistency",
         "reason": None if sequence_scores
         else "no task has 2+ successful eligible runs to compare paths across",
+    }
+    agent_split = ({key: round(_mean([x[key] for x in split_scores]), 4)
+                    for key in ("agree", "actions", "order")} if split_scores else None)
+    sequence_block["split"] = {
+        **(agent_split or {"agree": None, "actions": None, "order": None}),
+        "tasks_scored": len(split_scores),
+        "says": path_split_says(agent_split),
+        "basis": "per pair of successful runs, common-subsequence agreement "
+                 "lcs/max-length; what it loses splits exactly into other "
+                 "actions (1 - multiset overlap/max) and the same actions in "
+                 "another order ((overlap - lcs)/max); mean over pairs, then tasks",
     }
     resource_block = {
         "value": round(_mean(resource_scores), 4) if resource_scores else None,
@@ -648,6 +936,11 @@ def _agent_reliability(name: str,
         "resource_consistency": resource_block,
         "icc": icc_block,
         "runs_advisory": advisory,
+        "unbroken_records": unbroken_records(per_task),
+        "run_plan": run_plan(per_task),
+        "rerun_flips": rerun_flips(per_task),
+        "runs_or_tasks": runs_or_tasks(icc_block.get("icc1"), len(scored_tasks),
+                                       (runs_used / len(scored_tasks)) if scored_tasks else 0),
         "per_task": per_task,
     }
     result["narrative"] = _agent_narrative(result)

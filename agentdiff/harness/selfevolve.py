@@ -24,7 +24,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from ..selfevolve import Harness
 from .vendors import VendorSpec, baseline_check, run_duel
@@ -57,8 +57,10 @@ def vendor_arm(tasks: list, specs: List[VendorSpec], out: Path, *, runs: int = 1
     out = Path(out)
     baselines: dict = {}
 
-    def run_arm(harness: Harness, label: str, only: Optional[list] = None) -> list:
-        """Every task, or ``only`` the tasks named (a confirmation of the tasks a change moved)."""
+    def run_arm(harness: Harness, label: str, only: Optional[list] = None,
+                rounds: Optional[Tuple[int, int]] = None) -> list:
+        """Every task, or ``only`` the tasks named (a confirmation of the tasks a change moved). With
+        ``rounds=(first, count)``, only runs ``first`` to ``first + count - 1`` of each, into the same arm."""
         chosen = [t for t in tasks if not only or t["id"] in only]
         for t in chosen:
             if t.get("check") and t["id"] not in baselines:
@@ -81,8 +83,9 @@ def vendor_arm(tasks: list, specs: List[VendorSpec], out: Path, *, runs: int = 1
             "options": {"budget_tokens": kw.get("budget_tokens"), "timeout": kw.get("timeout_s"),
                         "check_timeout": kw.get("check_timeout_s"), "harness": harness.version}}, indent=1),
             encoding="utf-8")
-        records = run_duel(arm_tasks, arm_specs, d, runs=runs, parallel=True, baselines=baselines,
-                           on_event=on_event, **kw)
+        first, count = rounds or (1, runs)
+        records = run_duel(arm_tasks, arm_specs, d, runs=count, first_run=first, parallel=True,
+                           baselines=baselines, on_event=on_event, **kw)
         trajs = []
         for r in records:
             if r.get("failed"):

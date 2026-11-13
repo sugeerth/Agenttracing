@@ -14,7 +14,8 @@ import json
 import sys
 from pathlib import Path
 
-from ..adapters import detect_verl, from_agent_lightning, from_openai_messages, from_otel_genai, from_verl
+from ..adapters import (detect_verl, from_agent_lightning, from_openai_messages, from_otel_genai, from_otlp, from_verl,
+                        is_otlp)
 from ..registry import convert as registry_convert, dry_run, formats
 from ..claude_code import register_format as _register_claude_code
 _register_claude_code()
@@ -45,10 +46,32 @@ def register(subparsers) -> None:
                              "including fidelity counters, without writing")
     parser.add_argument("--list-formats", action="store_true",
                         help="list the known trace formats and exit")
+    parser.add_argument("--to", default="schema", choices=("schema", "otel"),
+                        help="what to write: a SCHEMA trajectory (default), or OpenTelemetry spans as OTLP/JSON "
+                             "after the GenAI conventions, for any OTel backend (<task>__<agent>.otlp.json)")
+    parser.add_argument("--content", action="store_true",
+                        help="--to otel: put the steps' text (prompts, tool arguments and results) in the spans; "
+                             "without it they carry sizes only, as the GenAI conventions make content opt-in")
     parser.add_argument("--agent", default=None,
                         help="agent name for verl / agent-lightning records that carry no "
                              "model or policy name")
     parser.set_defaults(func=run)
+
+
+def _write(trajectory: dict, out_dir: Path, args: argparse.Namespace, source: Path) -> Path:
+    """The trajectory, or with ``--to otel`` its OTLP/JSON spans, written as ``<task>__<agent>``."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"{safe_name(trajectory['task']['id'])}__{safe_name(trajectory['agent']['name'])}"
+    if getattr(args, "to", "schema") == "otel":
+        from ..otlp_export import to_otlp
+        out_path = out_dir / f"{stem}.otlp.json"
+        # a trace that records no start begins when its file was written
+        doc = to_otlp(trajectory, content=args.content, start_s=source.stat().st_mtime)
+        out_path.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    else:
+        out_path = out_dir / f"{stem}.json"
+        out_path.write_text(json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return out_path
 
 
 def run(args: argparse.Namespace) -> int:
@@ -92,8 +115,7 @@ def run(args: argparse.Namespace) -> int:
                 continue
             for warning in warnings:
                 print(f"warning: record {pos}: {warning}", file=sys.stderr)
-            out_path = out_dir / f"{safe_name(trajectory['task']['id'])}__{safe_name(trajectory['agent']['name'])}.json"
-            out_path.write_text(json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            _write(trajectory, out_dir, args, in_path)
             written += 1
         print(f"Wrote {written} of {len(data)} veRL rollout(s) to {out_dir}")
         return 0 if written else 2
@@ -107,11 +129,7 @@ def run(args: argparse.Namespace) -> int:
             return 2
         for warning in warnings:
             print(f"warning: {warning}", file=sys.stderr)
-        out_dir = Path(args.output)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{safe_name(trajectory['task']['id'])}__{safe_name(trajectory['agent']['name'])}.json"
-        out_path.write_text(json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(f"Wrote {out_path}")
+        print(f"Wrote {_write(trajectory, Path(args.output), args, in_path)}")
         return 0
 
     if args.dry_run:
@@ -130,22 +148,16 @@ def run(args: argparse.Namespace) -> int:
               f"(confidence {result['confidence']:.0%})")
         for warning in warnings:
             print(f"warning: {warning}", file=sys.stderr)
-        out_dir = Path(args.output)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        tid = safe_name(trajectory["task"]["id"])
-        agent = safe_name(trajectory["agent"]["name"])
-        out_path = out_dir / f"{tid}__{agent}.json"
-        out_path.write_text(
-            json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8")
-        print(f"Wrote {out_path}")
+        print(f"Wrote {_write(trajectory, Path(args.output), args, in_path)}")
         return 0
 
     try:
-        if args.format == "otel":
+        if args.format == "otel" and is_otlp(data):
+            trajectory, warnings = from_otlp(data)
+        elif args.format == "otel":
             if not isinstance(data, dict) or "spans" not in data:
-                print("error: otel input must be an object with a 'spans' array "
-                      "(plus 'meta', or top-level 'agent' and 'task')",
+                print("error: otel input must be an OTLP/JSON document ('resourceSpans'), or an object with a "
+                      "'spans' array (plus 'meta', or top-level 'agent' and 'task')",
                       file=sys.stderr)
                 return 2
             # Metadata may sit under "meta" (same shape as the openai adapter
@@ -177,12 +189,5 @@ def run(args: argparse.Namespace) -> int:
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
 
-    out_dir = Path(args.output)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    tid = safe_name(trajectory["task"]["id"])
-    agent = safe_name(trajectory["agent"]["name"])
-    out_path = out_dir / f"{tid}__{agent}.json"
-    out_path.write_text(json.dumps(trajectory, indent=2, ensure_ascii=False) + "\n",
-                        encoding="utf-8")
-    print(f"Wrote {out_path}")
+    print(f"Wrote {_write(trajectory, Path(args.output), args, in_path)}")
     return 0

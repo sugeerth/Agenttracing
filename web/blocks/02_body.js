@@ -28,7 +28,7 @@
       ".bd-stats .bars{height:10px;display:grid;grid-template-rows:4px 4px;gap:2px}",
       ".bd-stats .bars i{display:block;height:4px;border-radius:2px}",
       ".bd-stats .bars i.a{background:var(--a)}.bd-stats .bars i.b{background:var(--b)}",
-      ".bd-stats .nums{white-space:nowrap}.bd-stats .nums .a{color:var(--a)}.bd-stats .nums .b{color:var(--b)}",
+      ".bd-stats .nums{white-space:nowrap}.bd-stats .nums .a{color:var(--a)}.bd-stats .nums .b{color:var(--b-ink, var(--b))}",
       ".bd-stats .one{grid-column:1 / -1;font-family:var(--sans);color:var(--ink-2)}",
       ".bd-stats .one b{font-weight:600;color:var(--ink)}",
       ".bd-outcome{font-family:var(--mono);font-size:var(--fs-s)}",
@@ -129,7 +129,7 @@
       lede.appendChild(H("span", { class: "bd-axis" }, [dbgBtn]));
       var chartHost = H("div", { class: "bd-chart" });
       var left = H("div", null, [lede, chartHost]);
-      var stats = H("div", { class: "bd-stats", role: "list", "aria-label": "A versus B" });
+      var stats = H("div", { class: "bd-stats", role: "group", "aria-label": "A versus B" });
       [
         stat(ctx, "steps", md.steps && md.steps.a, md.steps && md.steps.b, function (v) { return String(v); }),
         stat(ctx, "tool calls", md.tool_calls && md.tool_calls.a, md.tool_calls && md.tool_calls.b, function (v) { return String(v); }),

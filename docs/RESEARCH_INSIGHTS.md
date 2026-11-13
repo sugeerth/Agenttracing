@@ -104,7 +104,7 @@ network, pinned by test.
 | 6 | **Null-agent control + grader-shortcut audit + injection contract** (clean twin passes; artifact reachable in the chain) | Agentic Benchmark Checklist, AgentTrace, MAS-FIRE | shipped (null_agent family; invalid_pairs excluded and counted; artifact reachability) |
 | 7 | **Evidence-class weighting** — observable events outrank stated reasons; verdicts tag their supporting class | Anthropic CoT faithfulness, Arcuschin | shipped (SCHEMA v41) |
 | 8 | **Overdetermination guard** — the corrected step must be materially different from the original before a flip counts | Thought Anchors (2025) | shipped narrowly: the two-wrong-values signature (SCHEMA v41) |
-| 9 | **pass^k with CI + depth-stratified flakiness** in consolidation | τ-bench, Beyond pass@1 (2026) | shipped: Wilson plug-in interval (SCHEMA v41) |
+| 9 | **pass^k with CI + depth-stratified flakiness** in consolidation | τ-bench, Beyond pass@1 (2026) | shipped: Wilson plug-in interval (SCHEMA v41); since 2026-10-28 the envelope of a task bootstrap and that interval, because the plug-in alone left its own estimate outside when tasks differ |
 | 10 | **MAST cross-mapping** in the taxonomy (TRAIL already mapped) | MAST, TRAIL | queued |
 | 11 | **Narration evidence window** — the narrator sees decisive step ± neighbours and ledger quotes, never the whole trace | DuoTrace / detect-before-attribute, long-context judge collapse | shipped (v33, reading evidence window) |
 | 12 | **Same-config noise-floor diff** — a run compared with itself is the artifact floor every verdict must exceed | crosscoder sparsity artifacts, XAI-Δ specificity | queued |

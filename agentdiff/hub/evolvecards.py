@@ -13,6 +13,8 @@ from __future__ import annotations
 import html
 from typing import List, Optional
 
+from ..selfevolve import power_text, resolution, test_of
+
 __all__ = ["evolve_card", "evals_card", "start_card", "CARDS_CSS"]
 
 CARDS_CSS = """
@@ -308,6 +310,18 @@ def _runs_chart(entry, data: dict, *, open_: bool) -> str:
             f'{chart}</details>')
 
 
+def _cost(cost, med) -> str:
+    """What a change cost a run, paired by task with the exact test over tasks: ' · tokens +33% a run, not shown by
+    6 tasks (p 0.16)'. Without that pairing (an older record), the pooled median as before."""
+    tok = (cost or {}).get("tokens") or {}
+    if tok.get("ratio") is None or tok.get("p") is None:
+        return _tokens(med)
+    d = tok["ratio"] - 1
+    size = "about the same" if abs(d) < 0.05 else f"{'+' if d > 0 else '−'}{abs(d) * 100:.0f}%"
+    shown = "shown" if tok["p"] <= 0.05 else "not shown"
+    return f" · tokens {size} a run, {shown} by {tok['tasks']} tasks (p {tok['p']:.2g})"
+
+
 def _tokens(med) -> str:
     """What a change cost: ' · tokens +19%' (median per run, the change against the harness as it was)."""
     if not med or not med.get("current") or med.get("changed") is None:
@@ -332,6 +346,60 @@ def holdout_line(data: dict) -> str:
     cls = "ok" if t.get("verdict") == "kept" else "mut"
     return (f'<div class="hold"><b>On tasks it never evolved on</b> ({e(names)}): <span class="{cls}">'
             f'{e(h.get("says") or "")}</span> · {e(nums)}{_odds(t.get("p_value"))}</div>')
+
+
+def signal_line(data: dict) -> str:
+    """Per generation, how many tasks could tell a change apart: those that passed some runs and failed others."""
+    bits = []
+    for g in data.get("lineage") or []:
+        sig = g.get("signal")
+        if not sig or not g.get("failed"):
+            continue
+        n = sum(len(v) for v in sig.values())
+        bits.append(f'{e(g["generation"])} {len(sig["mixed"])}/{n}')
+    if not bits:
+        return ""
+    return ('<div class="hold" title="a task that always passed can only be broken by a change, and one that always '
+            'failed can only be won"><b>Tasks that could tell a change apart</b> (passed some runs, failed others): '
+            + " · ".join(bits) + '</div>')
+
+
+def resolution_line(data: dict) -> str:
+    """Per tested change, the sign test's power against a change that wins three in four of the tasks it moves,
+    and the tasks that would give it 80%: how much any verdict here could show (selfevolve.resolution)."""
+    bits, floor = [], None
+    for g in data.get("lineage") or []:
+        t = test_of(g)
+        # a record from before the field: the same numbers, from the test's own counts
+        r = t.get("resolution") or (resolution(t["tasks"], len(t.get("wins") or []) + len(t.get("losses") or []))
+                                    if t.get("tasks") else None)
+        if not r or not r.get("moved", [0, 0])[1]:
+            continue
+        if not r.get("reachable"):
+            floor = r
+        need = f", ~{r['tasks_needed']} tasks for {r['target']:.0%}" if r.get("tasks_needed") else ""
+        bits.append(f'{e(g["generation"])} {e(power_text(r["power"]))}{e(need)}')
+    if not bits:
+        return ""
+    note = (f' · with {floor["moved"][1]} tasks no outcome reaches {floor["alpha"]:g}' if floor else "")
+    return ('<div class="hold" title="exact power of the one-sided sign test at the share of tasks that moved; '
+            'reported, it decides nothing"><b>What the test could show</b> (power against a change that wins '
+            '3 in 4 moved tasks): ' + " · ".join(bits) + e(note) + '</div>')
+
+
+def prune_line(data: dict) -> str:
+    """Whether each change it kept still earned its place when tested again against the harness it ended with."""
+    p = data.get("prune") or {}
+    if not p.get("tested"):
+        return ""
+    bits = []
+    for t in p["tested"]:
+        v = t.get("test") or {}
+        pc, pn = (v.get("passed") or {}).get("current"), (v.get("passed") or {}).get("changed")
+        nums = f" ({pc[0]}/{pc[1]} without, {pn[0]}/{pn[1]} with)" if pc and pn else ""
+        bits.append(f'<span class="{"ok" if t.get("stays") else "mut"}">{e(t["remedy"]["id"])} '
+                    f'{"stays" if t.get("stays") else "dropped"}</span>{e(nums)}')
+    return f'<div class="hold"><b>Tested again</b>: {e(p.get("says") or "")} · {" · ".join(bits)}</div>'
 
 
 def _odds(p) -> str:
@@ -370,8 +438,8 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
     first, last = gens[0], gens[-1]
     p0, r0 = first["runs"] - first["failed"], first["runs"]
     p1, r1 = last["runs"] - last["failed"], last["runs"]
-    kept = sum(1 for g in gens if ((g.get("action") or {}).get("test") or {}).get("verdict") == "kept")
-    reverted = sum(1 for g in gens if ((g.get("action") or {}).get("test") or {}).get("verdict") == "reverted")
+    kept = sum(1 for g in gens if test_of(g).get("verdict") == "kept")
+    reverted = sum(1 for g in gens if test_of(g).get("verdict") == "reverted")
     born = sum(len((g.get("evals") or {}).get("born") or []) for g in gens)
     retired = sum(len((g.get("evals") or {}).get("retired") or []) for g in gens)
     if last["failed"] == 0:
@@ -401,12 +469,19 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
                f'{"an instruction built from the project itself" if from_project else "a generic instruction"}, '
                f'tested paired">explored{" · project" if from_project else ""}</span> ' if explored else "")
         odds = _odds(t.get("p_value")) if t else ""
+        fam = data.get("family") or {}
+        adj = (fam.get("adjusted") or {}).get(g.get("generation"))
+        if odds and fam.get("tests", 0) > 1 and adj is not None:
+            # one of several changes tested: the chance some change that did nothing does this well among them
+            odds += (f' <span class="mut" title="Holm-adjusted over the {fam["tests"]} changes this run tested">'
+                     f'({"as likely" if adj >= 0.5 else "1 in " + str(round(1 / adj))} across the '
+                     f'{fam["tests"]} tested)</span>')
         conf = (t.get("confirm") or {}) if t else {}
         if conf:
             odds += (f' · <span class="ok" title="{e(conf["first"]["chance"])}">held when '
                      f'{e(", ".join(conf["tasks"]))} ran again</span>' if conf.get("held") else
                      f' · <span class="bad">did not hold when {e(", ".join(conf["tasks"]))} ran again</span>')
-        odds += _tokens(t.get("median_tokens") if t else None)
+        odds += _cost(t.get("cost") if t else None, t.get("median_tokens") if t else None)
         if g["failed"] == 0:
             chg = '<span class="ok">✓ every run passed</span>'
         elif not rem:
@@ -448,7 +523,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         pill = ""  # still going: the strip says where it is, not how it ended
     use = adopt_form(entry, adopt_csrf) if adopt_csrf and harness.get("version") and not live else ""
     return (f'<div class="ecard"><div class="ehead">{name}{pill}</div>{live}'
-            f'{stats}<div class="gstrip">{"".join(steps)}</div>{runs}{ends_html}{holdout_line(data)}{use}'
+            f'{stats}<div class="gstrip">{"".join(steps)}</div>{runs}{ends_html}{signal_line(data)}{resolution_line(data)}{prune_line(data)}{holdout_line(data)}{use}'
             + (f'<a class="more" href="{href}">Every change and its evidence →</a>' if link else "") + '</div>')
 
 

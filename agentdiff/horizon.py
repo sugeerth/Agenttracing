@@ -21,6 +21,7 @@ from typing import Optional
 
 from . import sections as _sections
 from ._text import secs
+from .diagnosis import committed_step
 from .timing import time_attribution
 from .trace import Trajectory
 
@@ -316,7 +317,8 @@ def _depth(n: dict) -> int:
 def horizon_pair(report: dict, a: Trajectory, b: Trajectory) -> dict:
     reading = report.get("reading") or {}
     diag = report.get("diagnosis") or {}
-    dec = diag.get("decisive_step") or {}
+    # a contested diagnosis names only where the runs part, never a decisive step
+    dec = {"step": committed_step(diag)}
     subject = diag.get("subject")
     fault = {"a": set(), "b": set()}
     for side in ("a", "b"):

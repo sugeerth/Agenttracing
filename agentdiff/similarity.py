@@ -103,12 +103,8 @@ def build_profiles(trajs_by_agent: dict[str, list[Trajectory]]) -> list[Profile]
     return [Profile(name, trajs_by_agent[name]) for name in sorted(trajs_by_agent)]
 
 
-def lcs_ratio(a: tuple[str, ...], b: tuple[str, ...]) -> float:
-    """Similarity of two sequences as ``2*LCS / (len(a)+len(b))`` in [0, 1]."""
-    if not a and not b:
-        return 1.0
-    if not a or not b:
-        return 0.0
+def lcs_length(a, b) -> int:
+    """Length of the longest common subsequence of two sequences."""
     prev = [0] * (len(b) + 1)
     for token_a in a:
         current = [0]
@@ -118,7 +114,16 @@ def lcs_ratio(a: tuple[str, ...], b: tuple[str, ...]) -> float:
             else:
                 current.append(max(prev[j + 1], current[j]))
         prev = current
-    return round(2 * prev[-1] / (len(a) + len(b)), 4)
+    return prev[-1]
+
+
+def lcs_ratio(a: tuple[str, ...], b: tuple[str, ...]) -> float:
+    """Similarity of two sequences as ``2*LCS / (len(a)+len(b))`` in [0, 1]."""
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return round(2 * lcs_length(a, b) / (len(a) + len(b)), 4)
 
 
 def cosine(counts_a: dict[str, int], counts_b: dict[str, int]) -> float:
