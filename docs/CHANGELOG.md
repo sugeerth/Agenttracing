@@ -5,6 +5,37 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## GenAI spans, read as the conventions write them in November 2026
+
+`adapters.from_otel_genai` / `from_otlp`, against the OpenTelemetry GenAI conventions as their
+repository stood on 2026-11-13.
+- **Messages.** A message in the conventions' shape (`role` and `parts`) is read as its text, whether
+  structured or a JSON string (`adapters._genai_text`). Before, the step's text and the run's answer were
+  Python reprs (`{'role': 'user', 'parts': [...]}`).
+  - A tool call reads `name(arguments)`, and a tool response reads as its result.
+  - Reasoning parts are left out.
+  - Object values become sorted JSON instead of a repr.
+- **Wire values.** `kvlistValue` becomes an object, `intValue` an integer, and `bytesValue` its text. The
+  conventions now require structured values for messages and tool calls, with no JSON-string fallback on
+  spans.
+- **Operations from the registry:**
+  - `retrieval`, `search_memory`, `update_memory` and `upsert_memory` are retrieval steps, read from
+    `gen_ai.retrieval.query.text` / `.documents` and `gen_ai.memory.query.text` / `.records`.
+  - `plan` is a planning step.
+  - `invoke_runner` and the `invoke_{framework_entrypoint}` pattern are agent turns, root included
+    (`adapters._is_agent_op`).
+  - `realtime_inference` and `fetch_response` read as chats.
+  - `user_speech` is skipped and said so.
+
+Measured:
+- **The registry's 22 operation names, one span each:** 17 of the 17 that are agent steps now map to a
+  step, from 8. The 5 skipped are bookkeeping, as before.
+- **The conventions' 32 reference instrumentations** (their recorded attribute keys and operation names;
+  no span values):
+  - (library, span type) pairs mapped to steps: 53 of 53, from 43;
+  - libraries complete: 27 of 27, from 18;
+  - content attributes read: 72 of 90, from 57. The 18 left are all `gen_ai.system_instructions`.
+
 ## A divergence pattern, against the arm labels dealt at random
 
 `stability` gave each task a divergence verdict: how often the two

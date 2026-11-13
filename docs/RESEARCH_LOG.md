@@ -4,6 +4,53 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-13
+
+**How it was read.** Papers through search-engine extracts; arxiv.org could not be reached. The
+OpenTelemetry GenAI conventions were read at source: their repository (github.com, reachable), with its
+change log since October, registry, exception page and 32 reference instrumentations.
+
+**Read:**
+- *Trace2Eval* (arXiv 2611.06506): coding-agent benchmarks rebuilt from real traces, with judge agents.
+- *Beneath the Surface: What We Overlook When We Talk About Agent Evolution* (arXiv 2611.07624). Most
+  reliability gains raise cost, and one agent grew more reliable while losing tasks it had covered.
+- *Attributing Agent Failures to Their History Needs an Executed Counterfactual* (arXiv 2611.05650).
+- *Knowing When to Intervene: Causal Evaluation of AI Agents* (arXiv 2611.09792), and *Closed-Loop Agent
+  Evaluation* (arXiv 2611.07051).
+- *AgentTrace* (arXiv 2603.14688), *AgentEval* (arXiv 2604.23581) and STRACE (2607.07702). They trace an
+  error back through the steps whose output it used.
+- The GenAI conventions in November 2026:
+  - structured values are required for messages and tool calls (#634);
+  - new exception events for tools, agents and inference, recorded as log records (#658–#670);
+  - `invoke_workflow` folded into an internal `invoke_agent` (#571), with `invoke_runner` and an
+    `invoke_{framework_entrypoint}` pattern;
+  - an internal `retrieval` span (#644);
+  - realtime sessions (#394).
+
+**Taken: reading GenAI spans as the conventions write them now.** Measured first, the importer was
+behind them:
+- messages in the conventions' `role`/`parts` shape came through as Python reprs, the run's answer
+  included;
+- a structured `kvlistValue` was not unwrapped;
+- 9 of the registry's 17 agent-step operations were dropped as unknown, `retrieval` and `plan` among them.
+
+Fixed in `adapters`. Measured against the conventions' own reference instrumentations: span types mapped
+53 of 53 (from 43), content attributes read 72 of 90 (from 57).
+
+**Not taken, and why:**
+- **Exception events.** They are log records, and a collector writes logs to their own file. A step's
+  error already comes from its span status. Reading `resourceLogs` beside the spans is a later change.
+- **Exporting the new form.** `convert --to otel` still writes the older `gen_ai.prompt` /
+  `gen_ai.completion` strings, and AgentDiff reads its own export back exactly. Moving it is its own
+  change, with its own round-trip check.
+- **System instructions** (18 of the 90 attributes not read). They are the agent's setup, so they belong
+  on the run rather than on a step.
+- **Data-flow root causes** (AgentTrace, AgentEval). On Who&When the backward slice from the answer
+  reaches the task prompt, so "the earliest step in it" is the first-step floor already scored. A
+  position rule fitted to the labels was rejected on 2026-10-24.
+- **Trace2Eval.** Its grading is done by judge agents.
+- **Executed counterfactuals.** `agentdiff replay` verifies a decisive step against controls (2026-10-25).
+
 ## 2026-11-12
 
 **How it was read.** Through search-engine extracts; arxiv.org could not

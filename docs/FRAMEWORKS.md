@@ -147,6 +147,30 @@ comes back step for step.
 - **Spans from other tools** are read as before. Their root agent span is a planning step, since nothing
   marks it as the run.
 
+**Reading the conventions as of November 2026.** Spans from other tools are read the way the conventions
+now write them:
+- **Messages:** `role` and `parts`, structured on the span (or a JSON string of them). Each becomes the
+  text of its parts: a text part's content, a tool call as `name(arguments)`, a tool response as its
+  result. Reasoning parts are left out of a step's text.
+- **Values:** structured values arrive as `kvlistValue` inside `arrayValue`, as the conventions require since
+  November 2026 for messages and tool calls.
+- **Operations:**
+  - `retrieval` and `search_memory` are retrieval steps, read from `gen_ai.retrieval.query.text` /
+    `.documents` and `gen_ai.memory.query.text` / `.records`.
+  - `plan` is a planning step.
+  - `invoke_runner` and any `invoke_{framework_entrypoint}` (`invoke_crew`) are agent turns.
+  - `realtime_inference` and `fetch_response` carry model output, as a chat does.
+  - `user_speech` is the person speaking, so it is skipped and said so.
+- **Measured** against the conventions' own reference instrumentations (32 libraries, from the attribute
+  keys and operation names they record; no span values were read):
+  - every span type that is an agent step now maps to a step: 53 of 53 (library, span type) pairs, from
+    43 before, and 27 of 27 libraries complete, from 18;
+  - of the 90 content attributes they emit, 72 are read, from 57;
+  - the 18 not read are all `gen_ai.system_instructions`, the agent's setup rather than a step.
+- **Not yet:** exporting in this form. `convert --to otel` still writes `gen_ai.prompt` / `gen_ai.completion`
+  as strings. Exception events, which arrive as log records, are not read either; a step's error comes
+  from its span status.
+
 ## 5. Production agents next — the plan
 
 **Trace sources to accept.** (1) OTel GenAI spans from any framework — already the `otel` adapter; extend it to
