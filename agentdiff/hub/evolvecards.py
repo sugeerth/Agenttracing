@@ -322,6 +322,16 @@ def _cost(cost, med) -> str:
     return f" · tokens {size} a run, {shown} by {tok['tasks']} tasks (p {tok['p']:.2g})"
 
 
+def _target(target) -> str:
+    """Whether the change stopped what it was chosen to stop: ' · its target: 6/6 runs before, 0/6 after'."""
+    if not target or not target.get("reading") or target["reading"] == "never fired":
+        return ""
+    cls = {"stopped": "ok", "fewer": "ok"}.get(target["reading"], "bad")
+    (fb, nb), (fa, na) = target["before"], target["after"]
+    return (f' · <span class="{cls}" title="{e(target["says"])}">its target {e(target["reading"])}: '
+            f'{fb}/{nb} runs before, {fa}/{na} after</span>')
+
+
 def _tokens(med) -> str:
     """What a change cost: ' · tokens +19%' (median per run, the change against the harness as it was)."""
     if not med or not med.get("current") or med.get("changed") is None:
@@ -482,6 +492,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
                      f'{e(", ".join(conf["tasks"]))} ran again</span>' if conf.get("held") else
                      f' · <span class="bad">did not hold when {e(", ".join(conf["tasks"]))} ran again</span>')
         odds += _cost(t.get("cost") if t else None, t.get("median_tokens") if t else None)
+        odds += _target((t or {}).get("target"))
         if g["failed"] == 0:
             chg = '<span class="ok">✓ every run passed</span>'
         elif not rem:

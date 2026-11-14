@@ -4,6 +4,57 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-14
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- *How Do Coding-Agent Harnesses Self-Evolve? An Empirical Study of
+  Retrospective Adaptation* (Treude and Baltes, arXiv 2610.34938, MSR
+  2027). 30 sessions gave 125 proposals, and 12 adaptations were tested
+  on later tasks. In the 7 evaluations where the targeted problem
+  appeared without the change:
+  - 2 changes removed it, 1 reduced it, and 4 did not;
+  - some changes added work on unrelated issues;
+  - fewer recurrences did not mean shorter sessions.
+  It asks that a change be checked for whether its problem recurred and
+  whether the adaptation was used.
+- *Can Coding Agents Sustain Continual Evolution without Forgetting?*
+  (arXiv 2611.03219). Evolving on a later dataset undid earlier gains.
+- *DeltaSelect* (arXiv 2609.19607): a fixed, budgeted task set for A/B
+  tests, chosen by correlation with the full benchmark.
+- Papers on A/B tests of coding agents (2608.22191, 2609.26048,
+  2608.31057). Each uses the task as the cluster, an exact or permutation
+  test beside the bootstrap, and reports both when they disagree.
+- *Ouroboros* (arXiv 2608.08311): reviewed self-development.
+
+**Taken: whether a kept change stopped what it was chosen to stop.**
+AgentDiff kept a change on passes alone, though it chose the change
+because a rule fired on the failing runs.
+- Built: `selfevolve.target_after`, carried in each rule-chosen change's
+  test and said on the card. That rule is applied to every run of both
+  arms, task by task.
+- Measured (synthetic, seeded): a change with no effect was kept 31–40%
+  of the time, and 52–65% of those read "not fewer". A change that
+  removes its target never did.
+- Recorded: the stand-in's change stopped its target, 6 of 6 runs to
+  none. The real evolutions on disk chose by exploration, with no rule to
+  check.
+
+**Not taken, and why:**
+- **Whether the adaptation was used** (the paper's second check), for
+  explorations. There is no general rule for "used an instruction" that
+  a model would not have to judge.
+- **DeltaSelect's task choice.** It selects tasks by correlation with a
+  full benchmark run, which AgentDiff's suites do not have. Running only
+  informative tasks was rejected on 2026-10-19.
+- **Forgetting across datasets** (2611.03219). `forgetting` (2026-10-30)
+  already tests old tasks after each kept change.
+- **Bootstrap beside the exact test.** AgentDiff's paired tests are
+  already exact over tasks (`sign_flip_p`, the sign test), and give no
+  bootstrap p to disagree with.
+
 ## 2026-11-13
 
 **How it was read.** Papers through search-engine extracts; arxiv.org could not be reached. The

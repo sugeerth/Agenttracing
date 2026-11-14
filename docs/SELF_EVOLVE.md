@@ -159,6 +159,23 @@ agent runs.
     went from 3 caught to 10. The 2 still missed (a rounding precision,
     and the enumeration limit read from the module) change nothing that
     matters.
+- **Whether a change stopped what it was chosen to stop.** A change is
+  chosen because a rule fired on this generation's failing runs. A record
+  whose change came from a rule carries `target` (`selfevolve.target_after`):
+  that rule applied to every run of both arms, task by task. It reads
+  stopped, fewer, not fewer, or never fired. The card says, for example,
+  "its target stopped: 6/6 runs before, 0/6 after". It decides nothing.
+  - **Simulated** (synthetic, seeded; 300 evolutions a setting):
+    - A change with no effect was still kept 31–40% of the time.
+    - Among those kept changes, 52–65% read "not fewer". The rest read
+      "fewer", because keeping a change favours runs that passed, and
+      these passed more often when they checked.
+    - A change that removes its target was never read "not fewer".
+    - So "not fewer" on a kept change points to luck. "Fewer" alone
+      settles nothing.
+  - **Recorded:** the stand-in's change (scripted) stopped its target, 6
+    of 6 runs to none. Both real evolutions chose their changes by
+    exploration, so no rule names a target for them.
 - **What a change costs a run.** Each tested change's record carries
   `cost`: tokens, seconds and steps per run, paired by task with the
   exact sign-flip test over the tasks (`selfevolve.change_cost`). The

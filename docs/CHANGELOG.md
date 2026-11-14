@@ -5,6 +5,34 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Whether a kept change stopped what it was chosen to stop
+
+`selfevolve.target_after`. A change chosen from a rule (an eval, or a
+one-generation witness) carries `target` in its test, and the card says
+it.
+- **What it does.** The rule is applied to every run of both arms, paired
+  by task. It gives runs fired before and after, the tasks that went down
+  and up, and the exact sign test over those tasks.
+- **The reading:**
+  - `stopped`: it fired before and never after;
+  - `fewer`: a smaller share of runs, with more tasks down than up;
+  - `not fewer`;
+  - `never fired`: nothing to stop here.
+- It decides nothing. An exploration has no rule, so it carries no target.
+
+Measured:
+- **Synthetic, seeded** (300 evolutions a setting, 3 tasks × 2 runs and
+  6 × 3):
+  - A change with no effect was kept 94 and 119 times.
+  - Of those kept changes, 61 and 62 read `not fewer`, and 33 and 57
+    read `fewer`.
+  - A change that removes its target was kept 259 and 290 times, and
+    never read `not fewer`.
+- **Recorded:** the scripted stand-in's change stopped its target, from 6
+  of 6 runs to 0 of 6 over 3 tasks (sign test p 0.25, the least 3 tasks
+  allow). The real recorded evolutions chose by exploration, so there is
+  no target to check.
+
 ## GenAI spans, read as the conventions write them in November 2026
 
 `adapters.from_otel_genai` / `from_otlp`, against the OpenTelemetry GenAI conventions as their

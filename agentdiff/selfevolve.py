@@ -504,6 +504,55 @@ def _trajectories_by_task(runs: list) -> Dict[str, list]:
     return out
 
 
+def target_after(rule: str, base: list, cand: list) -> dict:
+    """Whether a change stopped what it was chosen to stop.
+
+    A change is chosen because a rule fired on this generation's failing runs. Passes rising does not show
+    that the change acted through it: the rule may fire as often under the changed harness, and the passes
+    came another way. So the same rule is applied to every run of both arms, task by task. Reported beside
+    the verdict; it decides nothing.
+
+    ``reading`` is ``stopped`` (it fired before and never after), ``fewer`` (a smaller share of runs, and
+    more tasks down than up), ``not fewer``, or ``never fired`` (it fired on no run of the old harness, so
+    there was nothing here to stop).
+    """
+    from .forge import evaluate
+    from .statistics import sign_test
+    try:
+        parsed = parse_rule(rule)
+        a, b = _trajectories_by_task(base), _trajectories_by_task(cand)
+    except (KeyError, TypeError, ValueError):
+        return {}
+
+    def fired(trajs: list) -> int:
+        views = [RunView(t, None, set()) for t in trajs]
+        return sum(1 for v in views if evaluate(parsed, v) is not None)
+
+    tasks = sorted(set(a) & set(b))
+    rows = {t: (fired(a[t]), len(a[t]), fired(b[t]), len(b[t])) for t in tasks}
+    fb, nb = sum(r[0] for r in rows.values()), sum(r[1] for r in rows.values())
+    fa, na = sum(r[2] for r in rows.values()), sum(r[3] for r in rows.values())
+    fewer = [t for t, r in rows.items() if r[1] and r[3] and r[2] / r[3] < r[0] / r[1]]
+    more = [t for t, r in rows.items() if r[1] and r[3] and r[2] / r[3] > r[0] / r[1]]
+    if not fb:
+        reading = "never fired"
+    elif not fa:
+        reading = "stopped"
+    elif fa / na < fb / nb and len(fewer) > len(more):
+        reading = "fewer"
+    else:
+        reading = "not fewer"
+    what = describe(parsed)
+    says = {"never fired": f"what it was chosen to stop ({what}) did not happen under the old harness here",
+            "stopped": f"what it was chosen to stop ({what}) stopped: {fb} of {nb} runs before, none of {na} after",
+            "fewer": f"what it was chosen to stop ({what}) happened less: {fb} of {nb} runs before, {fa} of {na} after",
+            "not fewer": f"what it was chosen to stop ({what}) happened as often or more: {fb} of {nb} runs "
+                         f"before, {fa} of {na} after"}[reading]
+    return {"rule": spec(parsed), "before": [fb, nb], "after": [fa, na], "tasks": len(tasks),
+            "fewer": fewer, "more": more, "p": sign_test(len(fewer), len(more)), "reading": reading,
+            "says": says}
+
+
 def change_cost(base: list, cand: list) -> dict:
     """What a change costs a run, paired by task: tokens, seconds and steps, the changed harness over the one it
     replaces, each with the exact sign-flip test over the tasks (``efficiency.resource_ratio_over_runs``). A
@@ -846,6 +895,10 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
             say(f"{label}: confirmation {'held' if held else 'did not hold'}: {again['why']} "
                 f"(passed {again['passed']['current'][0]}/{again['passed']['current'][1]} → "
                 f"{again['passed']['changed'][0]}/{again['passed']['changed'][1]} on the fresh runs)")
+        if chosen.get("rule"):
+            verdict["target"] = target_after(chosen["rule"], trajs, cand_runs)
+            if verdict["target"]:
+                say(f"{label}: {verdict['target']['says']}")
         state["tried"][remedy["id"]] = verdict["verdict"]
         record["action"] = {"remedy": remedy, "because": {k: chosen[k] for k in ("eval", "rule", "caught", "wrong",
                                                                                   "source", "says")},
