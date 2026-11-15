@@ -4,6 +4,51 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-15
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- *Where Does Harness-Optimization Value Live? Localized Gains and the
+  Budget-Splitting Trap* (Nguyen et al., arXiv 2609.02889).
+  - Four separately evolved harness slots: the full harness gained +0.015
+    over stock, against +0.164 for the slots one at a time. That is
+    strongly sub-additive.
+  - Nearly all the useful gain sat in one slot (reflection and control).
+  - The authors trace it to the optimizer's accept-and-rescore floor.
+- *Agentic Harness Engineering* (arXiv 2604.25850, logged before). Gains
+  added up to +11.1 points one by one but +7.3 together, with redundant
+  verification eating the turn budget.
+- On choosing among candidates: RHO (2606.05922), whose self-preference
+  picks favour later options; *Mixture of Self-Improving Branches*
+  (2609.37834); *Recursive Harness Self-Improvement* (2607.15524); and
+  *Rethinking the Evaluation of Harness Evolution* (logged before).
+- Attribution benchmarks: LongRCA Bench (2608.15242), AgentRx
+  (2602.02475), MP-Bench (logged before).
+
+**Taken: whether two kept changes add up.** Since today's tournaments
+(requested), a runner-up has a gain measured alone, and the same change
+is later tested on top of the winner. Lining the two up answers the
+papers' question at no extra cost in runs.
+- Built: `selfevolve.stacked`, carried by the later test and each
+  tournament row, and said on the card.
+- Measured (synthetic): from 3 runs a task, adding and overlapping
+  changes are told apart 92–99% of the time. At 2, overlap is
+  over-called.
+- A first draft read the keep verdict, and the simulation showed it was
+  wrong: the no-task-may-break rule reverted real gains at 2 runs a task.
+  It now reads the gains.
+
+**Not taken, and why:**
+- **Self-preference selection** (RHO). A model would choose the change.
+- **Slot-wise leave-one-out on every run.** `--prune` already removes
+  each kept change from the final harness. Doing it every generation
+  costs an arm per change.
+- **Parallel branches** (Mixture of Self-Improving Branches). The
+  tournament's contenders already share one base; separate branches would
+  multiply the arms with no replication gate.
+
 ## 2026-11-14
 
 **How it was read.** Through search-engine extracts; arxiv.org could not

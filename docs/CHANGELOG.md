@@ -5,6 +5,32 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Whether two kept changes add up
+
+`selfevolve.stacked`. A tournament's runner-up that also won alone is
+remembered (`runners_up` in the ledger). When a later generation tests it
+on top of the winner, its test carries `stacked`:
+- `alone`: the gain in pass rate the change showed alone;
+- `on_top`: its gain on top of the winner;
+- `share`: on top over alone;
+- `reading`: `adds` when the share is at least 0.5 (`STACK_KEEPS`), else
+  `overlaps`;
+- `kept_on_top`: the keep verdict, kept apart from the reading.
+
+Each tournament row carries its `stacked` reading too, and the card says
+"on top of X: adds". It decides nothing.
+
+Measured (synthetic, seeded, 300 evolutions a setting, breadth 2):
+- **Disjoint helpers read `adds`:** 22 of 24 at 3 runs a task, 14 of 24
+  at 2.
+- **Overlapping helpers read `overlaps`:** 80 of 81 at 3 runs, 55 of 59
+  at 2.
+- **Lucky placebos read `adds`:** 8–17% of the time.
+
+An earlier draft read the keep verdict instead. It called disjoint helpers
+`overlaps` half the time at 2 runs, because the no-task-may-break rule
+reverted real gains.
+
 ## A tournament each generation, the winner made to replicate
 
 `self_evolve(breadth=N)` and `agentdiff self-evolve --breadth N` test the

@@ -322,6 +322,14 @@ def _cost(cost, med) -> str:
     return f" · tokens {size} a run, {shown} by {tok['tasks']} tasks (p {tok['p']:.2g})"
 
 
+def _stacked(st) -> str:
+    """A runner-up tested again on top of the winner: ' · on top of X: adds' or ': overlaps'."""
+    if not st or not st.get("reading"):
+        return ""
+    cls = "ok" if st["reading"] == "adds" else "mut"
+    return f' · <span class="{cls}" title="{e(st.get("says") or "")}">on top of {e(st["of"])}: {e(st["reading"])}</span>'
+
+
 def _tournament(tour) -> str:
     """A generation that tested several changes: ' · best of 3, replicated'."""
     if not tour or tour.get("breadth", 1) < 2:
@@ -505,6 +513,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
         odds += _cost(t.get("cost") if t else None, t.get("median_tokens") if t else None)
         odds += _target((t or {}).get("target"))
         odds += _tournament(g.get("tournament"))
+        odds += _stacked((t or {}).get("stacked"))
         if g["failed"] == 0:
             chg = '<span class="ok">✓ every run passed</span>'
         elif not rem:

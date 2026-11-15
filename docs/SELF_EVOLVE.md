@@ -251,6 +251,26 @@ Evolve has the same as a third way in, "On your repository's history".
   - **Runners-up come back.** A change that also won but was not chosen
     is left untried, so the next generation tests it again on top of the
     winner. That shows whether two changes add up.
+  - **Whether two changes add up.** A runner-up won alone, against the
+    same runs as the winner. Tested later on top of the winner, its test
+    carries `stacked` (`selfevolve.stacked`), and the card says "on top
+    of X: adds" or "overlaps".
+    - It compares the gain on top of the winner with the gain the change
+      showed alone. It "adds" when it keeps at least half
+      (`STACK_KEEPS`), and "overlaps" when the winner had already fixed
+      most of what it fixed.
+    - It reads the gains, not the keep verdict. That verdict also turns
+      on its rule that no task may break, which is noisy at a few runs a
+      task.
+    - **Synthetic, seeded** (300 evolutions a setting; 8 tasks, 2 helpers
+      that fix either disjoint or the same 4 tasks, 2 placebos, breadth
+      2):
+      - **3 runs a task:** disjoint helpers read "adds" 22 times in 24,
+        and overlapping ones "overlaps" 80 in 81.
+      - **2 runs a task:** 14 in 24 and 55 in 59.
+      - Placebos that won alone by luck read "adds" 8–17% of the time.
+      - So from 3 runs a task it tells adding from overlapping changes.
+        At 2, "overlaps" is not to be trusted.
   - **Shaky keeps are re-run.** With `--breadth 1` too, a rule-chosen
     change whose target reads "not fewer" is re-run on the tasks it
     moved before it stays.

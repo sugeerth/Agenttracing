@@ -764,6 +764,41 @@ def _rank(trial: dict) -> tuple:
             -((v.get("passed") or {}).get("changed") or [0, 0])[0], trial["remedy"]["id"])
 
 
+#: on top of the winner, a runner-up that keeps at least this share of the gain it showed alone "adds"
+STACK_KEEPS = 0.5
+
+
+def stacked(alone: dict, verdict: dict) -> dict:
+    """Whether two changes add up. A tournament's runner-up won alone, against the same runs as the winner. Tested
+    again on top of the winner, it either keeps much of the gain it showed alone (the two add) or loses most of it
+    (they overlap: what it fixed, the winner had fixed already).
+
+    The reading compares the two gains, in pass rate over the runs each test made: ``adds`` when the gain on top is
+    at least :data:`STACK_KEEPS` of the gain alone. It does not use the keep-or-revert verdict, which also turns on
+    its rule that no task may break and is noisier at a few runs a task. The verdict decides the harness, as
+    always; this only lines the two tests up."""
+    def gain(passed) -> Optional[float]:
+        try:
+            (pc, nc), (pn, nn) = passed["current"], passed["changed"]
+            return round(pn / nn - pc / nc, 4)
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            return None
+    alone_gain, top_gain = gain(alone.get("passed")), gain(verdict.get("passed"))
+    if alone_gain is None or top_gain is None or alone_gain <= 0:
+        return {}
+    share = round(top_gain / alone_gain, 4)
+    reading = "adds" if share >= STACK_KEEPS else "overlaps"
+    says = (f"alone it gained {_pct(alone_gain)} at {alone['generation']}; on top of {alone['on']} "
+            f"{_pct(top_gain)} ({share:.0%} of that): " +
+            ("the two add" if reading == "adds" else f"they overlap, much of what it fixed {alone['on']} had fixed"))
+    return {"of": alone["on"], "alone_at": alone["generation"], "alone": alone_gain, "on_top": top_gain,
+            "share": share, "reading": reading, "kept_on_top": verdict.get("verdict") == "kept", "says": says}
+
+
+def _pct(x: Optional[float]) -> str:
+    return "?" if x is None else f"{'+' if x >= 0 else '−'}{abs(x) * 100:.0f} points"
+
+
 def _tournament(trials: list, record: dict, label: str, say: Callable[[str], None], confirm: Callable) -> dict:
     """The best of several changes tested against the same runs, and the gate that best-of-N needs.
 
@@ -792,7 +827,8 @@ def _tournament(trials: list, record: dict, label: str, say: Callable[[str], Non
                "wins": len(t["verdict"].get("wins") or []), "losses": len(t["verdict"].get("losses") or []),
                "p_value": t["verdict"].get("p_value"), "passed": t["verdict"].get("passed"),
                "replicated": (t["verdict"].get("confirm") or {}).get("held"),
-               "note": rows.get(t["remedy"]["id"])} for t in trials]
+               "note": rows.get(t["remedy"]["id"]),
+               "stacked": (t["verdict"].get("stacked") or {}).get("reading")} for t in trials]
     winner = won["remedy"]["id"] if won else None
     held_back = [x["remedy"] for x in tested if x["verdict"] == "kept" and x["remedy"] != winner]
     says = (f"{len(trials)} changes tested against the same runs; "
@@ -956,6 +992,11 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
             if confirm and verdict["verdict"] == "kept" and ((verdict["p_value"] or 1) > CONFIRM_P or shaky):
                 verdict = _confirm(verdict, candidate, arm_label, cand_runs,
                                    why="what it was chosen to stop happened as often" if shaky else None)
+            alone = (state.get("runners_up") or {}).get(remedy["id"])
+            if alone and alone.get("on") in harness.remedies:
+                verdict["stacked"] = stacked(alone, verdict)
+                if verdict["stacked"]:
+                    say(f"{label}: {verdict['stacked']['says']}")
             return {"chosen": chosen, "remedy": remedy, "candidate": candidate, "runs": cand_runs, "verdict": verdict,
                     "label": arm_label}
 
@@ -1003,6 +1044,14 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 f"{harness.describe()}")
             trials = [trial(c, tag=f"-c{i + 1}") for i, c in enumerate(contenders)]
             won = _tournament(trials, record, label, say, _confirm)
+            if won["verdict"]["verdict"] == "kept":
+                ups = state.setdefault("runners_up", {})
+                for t in trials:
+                    if t is not won and t["verdict"]["verdict"] == "kept":
+                        v = t["verdict"]
+                        ups[t["remedy"]["id"]] = {"generation": label, "on": won["remedy"]["id"],
+                                                  "passed": v.get("passed"), "wins": len(v.get("wins") or []),
+                                                  "losses": len(v.get("losses") or [])}
             for t in trials:
                 if t is not won and t["verdict"]["verdict"] != "kept":
                     state["tried"][t["remedy"]["id"]] = t["verdict"]["verdict"]

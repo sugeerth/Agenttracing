@@ -103,6 +103,36 @@ class TournamentTest(unittest.TestCase):
         self.assertEqual(Harness.from_dict(res["harness"]).version, 0)
 
 
+class StackedTest(unittest.TestCase):
+    def test_disjoint_changes_add(self):
+        # opt0 fixes t1 and t2, opt1 fixes t3: what opt1 gained alone it gains on top of opt0
+        res = evolve(Arm(lambda t, h, l: (has(h, 0) and t in ("t1", "t2")) or (has(h, 1) and t == "t3")
+                                         or t == "t4"), breadth=2, generations=2)
+        st = res["lineage"][1]["action"]["test"]["stacked"]
+        self.assertEqual((st["of"], st["reading"], st["share"]), ("explore:opt0", "adds", 1.0))
+        self.assertTrue(st["kept_on_top"])
+
+    def test_overlapping_changes_overlap(self):
+        # opt1 fixes t1 and t2, which opt0 fixes too; t4 never passes, so the loop goes on
+        res = evolve(Arm(lambda t, h, l: ((has(h, 0) or has(h, 1)) and t in ("t1", "t2"))
+                                         or (has(h, 0) and t == "t3")), breadth=2, generations=2)
+        g1 = res["lineage"][1]
+        rows = {r["remedy"]: r for r in g1["tournament"]["tested"]}
+        self.assertEqual(rows["explore:opt1"]["stacked"], "overlaps")
+        self.assertEqual(res["ledger"]["tried"]["explore:opt1"], "reverted")
+
+    def test_the_reading(self):
+        from agentdiff.selfevolve import stacked
+        alone = {"generation": "g0", "on": "x", "passed": {"current": [2, 8], "changed": [6, 8]}, "wins": 2}
+        top = {"verdict": "reverted", "passed": {"current": [6, 8], "changed": [8, 8]}}
+        got = stacked(alone, top)
+        self.assertEqual((got["alone"], got["on_top"], got["share"], got["reading"]), (0.5, 0.25, 0.5, "adds"))
+        self.assertFalse(got["kept_on_top"])
+        top["passed"]["changed"] = [7, 8]
+        self.assertEqual(stacked(alone, top)["reading"], "overlaps")
+        self.assertEqual(stacked(dict(alone, passed={"current": [4, 8], "changed": [4, 8]}), top), {})
+
+
 class CardTest(unittest.TestCase):
     def test_the_card_says_it(self):
         from agentdiff.hub.evolvecards import _tournament
@@ -110,6 +140,11 @@ class CardTest(unittest.TestCase):
         self.assertIn("best of 3 tested, replicated", _tournament(res["lineage"][0]["tournament"]))
         self.assertEqual(_tournament(None), "")
         self.assertEqual(_tournament({"breadth": 1}), "")
+
+    def test_the_card_says_stacking(self):
+        from agentdiff.hub.evolvecards import _stacked
+        self.assertIn("on top of x: adds", _stacked({"of": "x", "reading": "adds", "says": "s"}))
+        self.assertEqual(_stacked(None), "")
 
 
 if __name__ == "__main__":
