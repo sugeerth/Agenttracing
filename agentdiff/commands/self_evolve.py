@@ -53,6 +53,10 @@ def register(subparsers) -> None:
     p.add_argument("--no-confirm", dest="confirm", action="store_false",
                    help="keep a change on its first paired test even when one or two tasks moved, instead of "
                         "running those tasks again to see it hold")
+    p.add_argument("--breadth", type=int, default=1, metavar="N",
+                   help="test the N best candidate changes each generation instead of one, each against the same "
+                        "runs; the best kept one must then replicate on the tasks it moved before it stays, and the "
+                        "other winners are tested again on top of it (N more arms a generation; default 1)")
     p.add_argument("--no-settle", dest="settle", action="store_false",
                    help="run every run of the changed harness even once the runs left could no longer make "
                         "it kept (by default it runs a round at a time and stops there)")
@@ -507,7 +511,8 @@ def run(args: argparse.Namespace) -> int:
                              patience=args.patience, check=visible_check([t["check"] for t in tasks]),
                              refuse_knobs=refuse, on_progress=said, on_generation=generation,
                              explore=getattr(args, "explore", True), confirm=getattr(args, "confirm", True),
-                             explore_first=first, settle=getattr(args, "settle", True))
+                             explore_first=first, settle=getattr(args, "settle", True),
+                             breadth=max(1, getattr(args, "breadth", 1) or 1))
     except KeyboardInterrupt:
         progress.end("stopped")
         print("\ninterrupted: the ledger keeps every generation that finished", file=sys.stderr)

@@ -240,6 +240,39 @@ Evolve has the same as a third way in, "On your repository's history".
   still count as a win. A change that does not hold is reverted, with
   the counts of both tests. `--no-confirm` keeps a change on its first
   test, as before.
+- **A tournament each generation.** `--breadth N` tests the N best
+  candidate changes a generation instead of one: the evals' and rules'
+  next candidates, then the next exploration instructions. Each change
+  runs against the same runs of the current harness.
+  - **The best must replicate.** Picking the best of N inflates luck,
+    so the best kept change runs again on the tasks it moved, both arms.
+    It stays only if the fresh runs alone show it winning. If it fails,
+    the next best kept change is tried the same way.
+  - **Runners-up come back.** A change that also won but was not chosen
+    is left untried, so the next generation tests it again on top of the
+    winner. That shows whether two changes add up.
+  - **Shaky keeps are re-run.** With `--breadth 1` too, a rule-chosen
+    change whose target reads "not fewer" is re-run on the tasks it
+    moved before it stays.
+  - The card says, for example, "best of 3 tested, replicated", and the
+    record keeps every contender's test under `tournament`. Each contender
+    is an arm of its own (`g0-h1-c2`), so N more arms a generation.
+  - **Synthetic, seeded** (100 evolutions a setting; 8 tasks at a 30% pass
+    rate, 2 runs a task; 6 candidate instructions, 2 of which lift their 4
+    tasks to 80% and 4 of which do nothing):
+
+    | Setting | Pass rate at the end | Helpers found (of 2) | Placebos kept | Runs |
+    | --- | --- | --- | --- | --- |
+    | breadth 1, 3 generations | 0.46 | 0.65 | 0.45 | 96 |
+    | breadth 1, 7 generations | 0.63 | 1.33 | 0.83 | 218 |
+    | breadth 3, 3 generations | 0.58 | 1.10 | 0.30 | 237 |
+    | breadth 5, 3 generations | 0.58 | 1.12 | 0.13 | 253 |
+
+    For the same number of runs, more generations of one change each
+    climbs higher, but keeps nearly one placebo an evolution. The
+    tournament keeps a far cleaner harness: at breadth 5, placebos fall
+    84% for about the same spend. So breadth buys precision, not speed
+    per run.
 - **No run past the point it could matter.** The changed harness runs
   a round at a time: run 1 of every task, then run 2. After each round
   `selfevolve.could_keep` asks whether any outcome of the runs left could

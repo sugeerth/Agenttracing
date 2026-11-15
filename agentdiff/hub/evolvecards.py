@@ -322,6 +322,17 @@ def _cost(cost, med) -> str:
     return f" · tokens {size} a run, {shown} by {tok['tasks']} tasks (p {tok['p']:.2g})"
 
 
+def _tournament(tour) -> str:
+    """A generation that tested several changes: ' · best of 3, replicated'."""
+    if not tour or tour.get("breadth", 1) < 2:
+        return ""
+    won = next((x for x in tour.get("tested") or [] if x["remedy"] == tour.get("winner")), None)
+    how = ("none kept" if not won else "replicated" if won.get("replicated") else
+           "not replicated" if won.get("replicated") is False else "kept")
+    return (f' · <span class="mut" title="{e(tour.get("says") or "")}">best of {tour["breadth"]} tested, '
+            f'{e(how)}</span>')
+
+
 def _target(target) -> str:
     """Whether the change stopped what it was chosen to stop: ' · its target: 6/6 runs before, 0/6 after'."""
     if not target or not target.get("reading") or target["reading"] == "never fired":
@@ -493,6 +504,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
                      f' · <span class="bad">did not hold when {e(", ".join(conf["tasks"]))} ran again</span>')
         odds += _cost(t.get("cost") if t else None, t.get("median_tokens") if t else None)
         odds += _target((t or {}).get("target"))
+        odds += _tournament(g.get("tournament"))
         if g["failed"] == 0:
             chg = '<span class="ok">✓ every run passed</span>'
         elif not rem:

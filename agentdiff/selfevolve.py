@@ -730,6 +730,80 @@ def _choose(evals_result: dict, label: str, runs: list, harness: Harness, tried:
     return {"chosen": chosen, "weighed": weighed}
 
 
+# ------------------------------------------------------------- the tournament
+def _more_contenders(choice: dict, chosen: dict, harness: "Harness", tried: dict, n: int, explore_ok: bool,
+                     explore_first: Sequence[Tuple[str, str, str]], n_failed: int) -> list:
+    """Up to ``n`` more changes to test beside ``chosen``: the next candidates the evals and rules weighed, then,
+    with exploration on, the next exploration instructions."""
+    out, seen = [], {chosen["remedy"]["id"]}
+    for w in choice.get("weighed") or []:
+        if len(out) >= n:
+            return out
+        r = w.get("remedy")
+        if r and not w.get("skipped") and r["id"] not in seen:
+            out.append(w)
+            seen.add(r["id"])
+    if explore_ok:
+        for key, value, why in list(explore_first) + list(EXPLORE):
+            if len(out) >= n:
+                break
+            rid = f"explore:{key}"
+            if rid in seen or rid in harness.remedies or tried.get(rid) == "reverted":
+                continue
+            seen.add(rid)
+            out.append({"eval": None, "rule": None, "caught": n_failed, "wrong": n_failed, "source": "exploration",
+                        "says": "a generic instruction, tested in the tournament like any other",
+                        "remedy": {"id": rid, "knob": "instruction", "value": value, "why": why, "rule": None,
+                                   "explored": True, "project": key.startswith("project_")}})
+    return out
+
+
+def _rank(trial: dict) -> tuple:
+    v = trial["verdict"]
+    return (-(len(v.get("wins") or []) - len(v.get("losses") or [])), v.get("p_value") or 1.0,
+            -((v.get("passed") or {}).get("changed") or [0, 0])[0], trial["remedy"]["id"])
+
+
+def _tournament(trials: list, record: dict, label: str, say: Callable[[str], None], confirm: Callable) -> dict:
+    """The best of several changes tested against the same runs, and the gate that best-of-N needs.
+
+    Picking the best of N inflates luck: with three changes that do nothing, one is likely to look kept. So the
+    best kept change must replicate: the tasks it moved run again, both arms, and it stays only if the fresh runs
+    alone show it winning (the same replication ``confirm`` asks for one change). If it does not hold, the next
+    best kept change is tried the same way. A change kept but not chosen is left untried, so a later generation
+    tests it again on top of the winner. Returns the winning trial, or the first one when none is kept."""
+    kept = sorted((t for t in trials if t["verdict"]["verdict"] == "kept"), key=_rank)
+    won, rows = None, {}
+    for t in kept:
+        conf = t["verdict"].get("confirm")
+        if conf is None:
+            t["verdict"] = confirm(t["verdict"], t["candidate"], t["label"], t["runs"],
+                                   why=f"the best of {len(trials)} tested")
+            conf = t["verdict"].get("confirm")
+        if conf is None:
+            rows[t["remedy"]["id"]] = "not replicated: the runner cannot run single tasks again"
+            won = t
+            break
+        if conf.get("held"):
+            won = t
+            break
+        rows[t["remedy"]["id"]] = "did not replicate"
+    tested = [{"remedy": t["remedy"]["id"], "verdict": t["verdict"]["verdict"],
+               "wins": len(t["verdict"].get("wins") or []), "losses": len(t["verdict"].get("losses") or []),
+               "p_value": t["verdict"].get("p_value"), "passed": t["verdict"].get("passed"),
+               "replicated": (t["verdict"].get("confirm") or {}).get("held"),
+               "note": rows.get(t["remedy"]["id"])} for t in trials]
+    winner = won["remedy"]["id"] if won else None
+    held_back = [x["remedy"] for x in tested if x["verdict"] == "kept" and x["remedy"] != winner]
+    says = (f"{len(trials)} changes tested against the same runs; "
+            + (f"{winner} won and replicated" if won and won["verdict"].get("confirm", {}).get("held")
+               else f"{winner} won" if won else "none was kept")
+            + (f"; {', '.join(held_back)} also won and will be tested again on top of it" if held_back and won else ""))
+    record["tournament"] = {"breadth": len(trials), "tested": tested, "winner": winner, "says": says}
+    say(f"{label}: tournament: {says}")
+    return won or trials[0]
+
+
 # ------------------------------------------------------------- the loop
 def _fresh(target: str) -> dict:
     return {"kind": LEDGER_KIND, "version": LEDGER_VERSION, "target": target, "harness": asdict(Harness()),
@@ -760,7 +834,7 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 refuse_knobs: tuple = (), on_progress: Optional[Callable[[str], None]] = None,
                 on_generation: Optional[Callable[[dict], None]] = None, explore: bool = False,
                 confirm: bool = False, explore_first: Sequence[Tuple[str, str, str]] = (),
-                settle: bool = False) -> dict:
+                settle: bool = False, breadth: int = 1) -> dict:
     """Go round ``generations`` times. ``run_arm(harness, label)`` runs the
     agents under ``harness`` and returns their trajectories (each graded by
     its task's check); it is called once per arm. Returns the lineage, the
@@ -854,51 +928,86 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                 stop += "; and every exploration instruction was tried"
             say(stop)
             break
-        remedy = chosen["remedy"]
-        candidate = harness.with_remedy(remedy)
-        if chosen["source"] == "exploration":
-            say(f"{label}: no eval names a change for the {len(failed)} failure(s), so it explores; "
-                f"testing: {remedy_text(remedy)}")
-        else:
-            say(f"{label}: {chosen['caught']} of {chosen['wrong']} failure(s) caught by "
-                f"{chosen['eval'] or chosen['rule']}; testing: {remedy_text(remedy)}")
+        def trial(chosen: dict, tag: str = "") -> dict:
+            """One change, tested paired against this generation's runs: settled, confirmed and its target read."""
+            remedy = chosen["remedy"]
+            candidate = harness.with_remedy(remedy)
+            if chosen["source"] == "exploration":
+                say(f"{label}: no eval names a change for the {len(failed)} failure(s), so it explores; "
+                    f"testing: {remedy_text(remedy)}")
+            else:
+                say(f"{label}: {chosen['caught']} of {chosen['wrong']} failure(s) caught by "
+                    f"{chosen['eval'] or chosen['rule']}; testing: {remedy_text(remedy)}")
+            arm_label = f"{label}-h{candidate.version}{tag}"
+            # 4. test it, paired: same tasks, same number of runs
+            cand_runs, settled = _candidate_runs(run_arm, candidate, arm_label, trajs, settle)
+            verdict = decide(trajs, cand_runs)
+            if settled:
+                verdict["settled"] = settled
+                verdict["why"] += (f"; settled after {settled['after']} of {settled['of']} round(s): no outcome of "
+                                   f"the {settled['skipped']} run(s) left could have made it kept, so they were not run")
+                say(f"{label}: settled after {settled['after']} of {settled['of']} round(s), "
+                    f"{settled['skipped']} run(s) not needed")
+            if chosen.get("rule"):
+                verdict["target"] = target_after(chosen["rule"], trajs, cand_runs)
+                if verdict["target"]:
+                    say(f"{label}: {verdict['target']['says']}")
+            shaky = (verdict.get("target") or {}).get("reading") == "not fewer"
+            if confirm and verdict["verdict"] == "kept" and ((verdict["p_value"] or 1) > CONFIRM_P or shaky):
+                verdict = _confirm(verdict, candidate, arm_label, cand_runs,
+                                   why="what it was chosen to stop happened as often" if shaky else None)
+            return {"chosen": chosen, "remedy": remedy, "candidate": candidate, "runs": cand_runs, "verdict": verdict,
+                    "label": arm_label}
 
-        # 4. test it, paired: same tasks, same number of runs
-        cand_runs, settled = _candidate_runs(run_arm, candidate, f"{label}-h{candidate.version}", trajs, settle)
-        verdict = decide(trajs, cand_runs)
-        if settled:
-            verdict["settled"] = settled
-            verdict["why"] += (f"; settled after {settled['after']} of {settled['of']} round(s): no outcome of the "
-                               f"{settled['skipped']} run(s) left could have made it kept, so they were not run")
-            say(f"{label}: settled after {settled['after']} of {settled['of']} round(s), "
-                f"{settled['skipped']} run(s) not needed")
-        if (confirm and verdict["verdict"] == "kept" and (verdict["p_value"] or 1) > CONFIRM_P
-                and _takes(run_arm, "only")):
+        def _confirm(verdict: dict, candidate: Harness, arm_label: str, cand_runs: list, why: Optional[str] = None):
+            """Run the tasks the change moved again, both arms: it stays only if the fresh runs alone show it
+            winning again."""
+            if not _takes(run_arm, "only"):
+                return verdict
             # one or two tasks moved: a lucky run could be all it is. Run the tasks that moved again, both arms
             moved = sorted(set(verdict["wins"]) | set(verdict["losses"]))
             first = {k: verdict[k] for k in ("verdict", "why", "passed", "p_value", "chance", "wins", "losses")}
-            say(f"{label}: kept on {len(moved)} task(s) that moved, {verdict['chance']}; confirming: "
+            say(f"{label}: kept on {len(moved)} task(s) that moved, {why or verdict['chance']}; confirming: "
                 f"{', '.join(moved)} again, both arms")
-            more_base = list(run_arm(harness, f"{label}-h{harness.version}-confirm", only=moved))
-            more_cand = list(run_arm(candidate, f"{label}-h{candidate.version}-confirm", only=moved))
+            tag = arm_label[len(f"{label}-h{candidate.version}"):]
+            more_base = list(run_arm(harness, f"{label}-h{harness.version}-confirm{tag}", only=moved))
+            more_cand = list(run_arm(candidate, f"{arm_label}-confirm", only=moved))
             # a replication: the fresh runs alone must show the change winning again. Pooled with the first
             # runs, one lucky pass against a task that never passed would always still count as a win
             again = decide(more_base, more_cand)
             held = again["verdict"] == "kept"
+            target = verdict.get("target")
             verdict = decide(trajs + more_base, cand_runs + more_cand)
+            if target:
+                verdict["target"] = target
             if not held:
                 verdict.update(verdict="reverted", why=f"it did not hold when {', '.join(moved)} ran again: "
                                                        f"{again['why']}")
             verdict["confirm"] = {"tasks": moved, "runs": len(more_base) + len(more_cand), "first": first,
                                   "again": {k: again[k] for k in ("verdict", "why", "passed", "p_value", "chance")},
                                   "held": held}
+            if why:
+                verdict["confirm"]["because"] = why
             say(f"{label}: confirmation {'held' if held else 'did not hold'}: {again['why']} "
                 f"(passed {again['passed']['current'][0]}/{again['passed']['current'][1]} → "
                 f"{again['passed']['changed'][0]}/{again['passed']['changed'][1]} on the fresh runs)")
-        if chosen.get("rule"):
-            verdict["target"] = target_after(chosen["rule"], trajs, cand_runs)
-            if verdict["target"]:
-                say(f"{label}: {verdict['target']['says']}")
+            return verdict
+
+        contenders = [chosen] + (_more_contenders(choice, chosen, harness, state["tried"], breadth - 1,
+                                                  explore and "instruction" not in refuse_knobs, explore_first,
+                                                  len(failed)) if breadth > 1 else [])
+        if len(contenders) == 1:
+            won = trial(chosen)
+        else:
+            say(f"{label}: a tournament of {len(contenders)} changes, each against the same runs of "
+                f"{harness.describe()}")
+            trials = [trial(c, tag=f"-c{i + 1}") for i, c in enumerate(contenders)]
+            won = _tournament(trials, record, label, say, _confirm)
+            for t in trials:
+                if t is not won and t["verdict"]["verdict"] != "kept":
+                    state["tried"][t["remedy"]["id"]] = t["verdict"]["verdict"]
+        chosen, remedy, candidate, cand_runs, verdict = (won["chosen"], won["remedy"], won["candidate"],
+                                                         won["runs"], won["verdict"])
         state["tried"][remedy["id"]] = verdict["verdict"]
         record["action"] = {"remedy": remedy, "because": {k: chosen[k] for k in ("eval", "rule", "caught", "wrong",
                                                                                   "source", "says")},

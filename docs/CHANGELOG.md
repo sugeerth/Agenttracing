@@ -5,6 +5,33 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A tournament each generation, the winner made to replicate
+
+`self_evolve(breadth=N)` and `agentdiff self-evolve --breadth N` test the
+N best candidate changes a generation, each against the same runs of the
+current harness, instead of one. The record keeps every contender's test
+under `tournament` (`breadth`, `tested`, `winner`, `says`), and the card
+says "best of N tested, replicated".
+- **The best kept change must replicate** on the tasks it moved, both
+  arms, or give way to the next best. Best-of-N otherwise inflates luck.
+- **A runner-up that also won is left untried**, so the next generation
+  tests it on top of the winner.
+- **Shaky keeps are re-run.** With `confirm` on, at any breadth, a
+  rule-chosen change whose `target` reads "not fewer" is re-run on the
+  tasks it moved, just as a weak sign test is.
+- Breadth 1 runs exactly as before.
+
+Measured (synthetic, seeded, 100 evolutions a setting, 8 tasks, 6
+candidate instructions of which 2 help):
+- **Breadth 3 over 3 generations:** true pass rate 0.58, 1.10 of 2
+  helpers found, 0.30 placebos kept, 237 runs.
+- **Breadth 1 over 7 generations, about the same spend:** 0.63, 1.33
+  helpers and 0.83 placebos, 218 runs.
+- **Breadth 5:** 0.58, 1.12 helpers and 0.13 placebos, 253 runs.
+
+For the same spend, the tournament keeps far fewer changes that do
+nothing (84% fewer at breadth 5). One change a generation climbs further.
+
 ## Whether a kept change stopped what it was chosen to stop
 
 `selfevolve.target_after`. A change chosen from a rule (an eval, or a
