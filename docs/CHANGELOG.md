@@ -5,6 +5,19 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Fixed: sequential runs read as overlapping
+
+`timing.timeline` rounded a run's summed step time and its span to 4
+decimals separately, then subtracted them. A recorder keeps each start and
+duration to the microsecond, so a strictly sequential run could show
+0.0001 s of `overlap_s` and a step counted as concurrent. That was 488 of
+2,000 seeded sequential runs (synthetic).
+
+Overlap now comes from the unrounded figures. Anything within the record's
+own rounding (`CLOCK_SLACK_S`, 2 µs a step) is no overlap. The 2,000 runs
+read 0. A real overlap of 0.0001 s or more is still measured. A test that
+records with the real clock failed on CI with this.
+
 ## Whether two kept changes add up
 
 `selfevolve.stacked`. A tournament's runner-up that also won alone is

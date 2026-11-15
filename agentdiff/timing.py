@@ -36,6 +36,10 @@ WASTE_LABEL = {
 _secs = partial(secs, whole_above=None)
 
 
+#: how far apart two clock readings may be and still be the same instant: a recorded start and duration are each
+#: kept to the microsecond, so a step can appear to begin up to about 1 µs before the one before it ended
+CLOCK_SLACK_S = 2e-6
+
 def timeline(traj: Trajectory) -> dict:
     """Is this run's clock *read* or *assumed*?
 
@@ -91,13 +95,20 @@ def timeline(traj: Trajectory) -> dict:
                         "One field per step — when it began — turns that assumption into a measurement."),
         }
     ends = [float(s) + lat for s, lat in zip(got, lats)]
-    span = round(max(ends) - min(got), 4)
-    overlap = round(max(0.0, total - span), 4)
+    raw_span = max(ends) - min(got)
+    span = round(raw_span, 4)
+    # Overlap from the unrounded figures, and nothing within the record's own rounding: a recorder stores a step's
+    # start and its duration each to the microsecond, so a strictly sequential run can show a step beginning a
+    # microsecond before the one before it ended. Rounding the sum and the span apart and subtracting turned that
+    # into 0.0001 s of "overlap" on about a quarter of sequential runs.
+    slack = CLOCK_SLACK_S * len(steps)
+    raw_overlap = sum(lats) - raw_span
+    overlap = round(raw_overlap, 4) if raw_overlap > slack else 0.0
     # a step that began before an earlier one ended
     order = sorted(zip(got, ends))
     concurrent, reach = 0, None
     for begin, end in order:
-        if reach is not None and begin < reach - 1e-9:
+        if reach is not None and begin < reach - CLOCK_SLACK_S:
             concurrent += 1
         reach = end if reach is None else max(reach, end)
     reading = (f"This run's clock is recorded: every step says when it began, so the timeline is read rather "

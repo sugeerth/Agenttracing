@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from agentdiff.reasoning import read_trace  # noqa: E402
 from agentdiff.report import compare  # noqa: E402
-from agentdiff.timing import WASTE_LABEL, compare_timing, time_attribution  # noqa: E402
+from agentdiff.timing import WASTE_LABEL, compare_timing, time_attribution, timeline  # noqa: E402
 from agentdiff.trace import Trajectory  # noqa: E402
 
 DEMO = ROOT / "demo" / "traces"
@@ -73,6 +73,41 @@ class TimeAttributionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClockRoundingTest(unittest.TestCase):
+    """A sequential run whose starts and durations are kept to the microsecond is still sequential."""
+
+    def _run(self, spans):
+        steps = [{"index": i, "type": "tool_call" if i < len(spans) - 1 else "answer",
+                  "name": "x" if i < len(spans) - 1 else "final", "input": "i", "output": "o", "tokens": 1,
+                  "latency_s": lat, "started_s": start} for i, (start, lat) in enumerate(spans)]
+        return Trajectory.from_dict({"schema_version": 1, "trace_id": "t", "run_id": "r",
+                                     "agent": {"name": "a", "model": "m", "version": "v"},
+                                     "task": {"id": "t", "prompt": "p", "expected": "e"},
+                                     "outcome": {"success": True, "answer": "a", "score": 1.0, "termination": None},
+                                     "totals": {"input_tokens": 1, "output_tokens": 1, "cost_usd": 0.0,
+                                                "latency_s": 1.0},
+                                     "steps": steps})
+
+    def test_sequential_runs_rounded_to_the_microsecond_do_not_overlap(self):
+        import random
+        rng = random.Random(1)
+        for _ in range(500):
+            t, spans = 0.0, []
+            for _ in range(rng.randint(2, 6)):
+                lat = rng.uniform(0.0001, 0.05)
+                spans.append((round(t, 6), round(lat, 6)))
+                t += lat
+            tl = timeline(self._run(spans))
+            self.assertEqual((tl["overlap_s"], tl["concurrent_steps"]), (0.0, 0), spans)
+
+    def test_real_overlap_is_still_measured(self):
+        tl = timeline(self._run([(0.0, 1.0), (0.5, 1.0), (1.5, 0.25)]))
+        self.assertEqual((tl["overlap_s"], tl["concurrent_steps"]), (0.5, 1))
+        # even a small one, once it is past the record's own rounding
+        tl = timeline(self._run([(0.0, 0.01), (0.0099, 0.01)]))
+        self.assertEqual((tl["overlap_s"], tl["concurrent_steps"]), (0.0001, 1))
 
 
 class TimelineBasisTest(unittest.TestCase):
