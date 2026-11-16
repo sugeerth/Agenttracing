@@ -240,6 +240,37 @@ Evolve has the same as a third way in, "On your repository's history".
   still count as a win. A change that does not hold is reverted, with
   the counts of both tests. `--no-confirm` keeps a change on its first
   test, as before.
+- **How much luck was in the first test.** A change that is re-run won
+  its first test, and a winner's first gain carries the luck that made it
+  a winner. Best of N carries more. The fresh runs had no hand in
+  choosing it. So each re-run carries `selection`
+  (`selfevolve.selection`), the gain in pass rate on the tasks the change
+  moved:
+  - `first`: from the first test;
+  - `fresh`: from the re-run;
+  - `shrink`: fresh over first.
+
+  The card says "fresh runs +17 points where the first test showed
+  +50". Tournament rows carry it for every contender re-run, held or
+  not. It decides nothing.
+  - **Synthetic, seeded** (150 evolutions a setting; the tournament
+    study's world, where the true gain is known):
+
+    | Breadth | Re-runs | First test | Fresh runs | True |
+    | --- | --- | --- | --- | --- |
+    | 1 | 109 | +0.248 | +0.128 | +0.095 |
+    | 3 | 505 | +0.349 | +0.148 | +0.142 |
+    | 5 | 543 | +0.339 | +0.141 | +0.136 |
+
+    The first test overstated a kept change's gain about 2.5×. The fresh
+    runs were within 0.005 of the true gain at breadth 3 and 5, and
+    within 0.033 at breadth 1.
+  - The count must take every change re-run, not only those still kept.
+    Keeping a change on its fresh runs selects on them too. Counted that
+    way, the fresh runs also overstate.
+  - **Recorded:** the one real re-run on disk (the hard-task example's
+    edge-case change, on `ranges`) held in full: +33 points on its first
+    test and on its fresh runs.
 - **A tournament each generation.** `--breadth N` tests the N best
   candidate changes a generation instead of one: the evals' and rules'
   next candidates, then the next exploration instructions. Each change

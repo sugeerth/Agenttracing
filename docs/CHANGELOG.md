@@ -5,6 +5,31 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## How much luck was in a kept change's first test
+
+`selfevolve.selection`, carried as `selection` in every re-run
+(`confirm`), and in each tournament row. On the tasks the change moved, it
+gives the gain in pass rate:
+- `first`: from the first test;
+- `fresh`: from the re-run;
+- `shrink`: fresh over first.
+
+The card says "fresh runs +17 points where the first test showed +50".
+It decides nothing.
+
+Measured:
+- **Synthetic, seeded** (150 evolutions a setting, every change re-run,
+  held or not):
+  - The first test overstated the true gain by +0.15 at breadth 1 and
+    +0.20 at breadth 3 and 5, about 2.5×.
+  - The fresh runs were within 0.005 at breadth 3 and 5, and 0.033 at
+    breadth 1.
+- **Recorded:** the hard-task example's one re-run held in full, +33
+  points both ways.
+- Counting only changes still kept after the re-run makes the fresh runs
+  overstate too (+0.11 to +0.22), since keeping selects on them. The
+  figures above count every re-run.
+
 ## Fixed: sequential runs read as overlapping
 
 `timing.timeline` rounded a run's summed step time and its span to 4

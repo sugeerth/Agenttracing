@@ -764,6 +764,38 @@ def _rank(trial: dict) -> tuple:
             -((v.get("passed") or {}).get("changed") or [0, 0])[0], trial["remedy"]["id"])
 
 
+def _rate_on(runs: list, tasks: set) -> Tuple[int, int]:
+    passed = n = 0
+    for t in runs:
+        traj = t if hasattr(t, "to_dict") else Trajectory.from_dict(t)
+        if traj.task.id in tasks and traj.outcome.success is not None:
+            n += 1
+            passed += bool(traj.outcome.success)
+    return passed, n
+
+
+def selection(base: list, cand: list, more_base: list, more_cand: list, moved: Sequence[str]) -> dict:
+    """How much a kept change's first test overstated its gain.
+
+    A change re-run is one that won its first test, and a winner's first gain carries the luck that made it a
+    winner (and best of N carries more). The fresh runs had no hand in choosing it, so their gain is the honest
+    one. Both are measured on the same tasks, the ones the change moved, in pass rate: ``first`` from the first
+    test, ``fresh`` from the re-run, and ``shrink`` the fresh over the first (1 when nothing was lost to luck,
+    0 when none of the gain held). Reported beside the verdict; it decides nothing."""
+    tasks = set(moved)
+    (fb, nb), (fc, nc) = _rate_on(base, tasks), _rate_on(cand, tasks)
+    (rb, mb), (rc, mc) = _rate_on(more_base, tasks), _rate_on(more_cand, tasks)
+    if not (nb and nc and mb and mc):
+        return {}
+    first, fresh = round(fc / nc - fb / nb, 4), round(rc / mc - rb / mb, 4)
+    shrink = round(fresh / first, 4) if first > 0 else None
+    says = (f"on the {len(tasks)} task(s) it moved, the first test gained {_pct(first)} and the fresh runs "
+            f"{_pct(fresh)}" + (f": the first test overstated it {first / fresh:.1f}×" if shrink and 0 < shrink < 1
+                                else ": none of it held" if shrink is not None and shrink <= 0 else
+                                ": it held in full" if shrink is not None else ""))
+    return {"tasks": len(tasks), "first": first, "fresh": fresh, "shrink": shrink, "says": says}
+
+
 #: on top of the winner, a runner-up that keeps at least this share of the gain it showed alone "adds"
 STACK_KEEPS = 0.5
 
@@ -828,7 +860,9 @@ def _tournament(trials: list, record: dict, label: str, say: Callable[[str], Non
                "p_value": t["verdict"].get("p_value"), "passed": t["verdict"].get("passed"),
                "replicated": (t["verdict"].get("confirm") or {}).get("held"),
                "note": rows.get(t["remedy"]["id"]),
-               "stacked": (t["verdict"].get("stacked") or {}).get("reading")} for t in trials]
+               "stacked": (t["verdict"].get("stacked") or {}).get("reading"),
+               "moved": (t["verdict"].get("confirm") or {}).get("tasks"),
+               "selection": (t["verdict"].get("confirm") or {}).get("selection")} for t in trials]
     winner = won["remedy"]["id"] if won else None
     held_back = [x["remedy"] for x in tested if x["verdict"] == "kept" and x["remedy"] != winner]
     says = (f"{len(trials)} changes tested against the same runs; "
@@ -1026,7 +1060,9 @@ def self_evolve(run_arm: Callable[[Harness, str], list], *, generations: int = 3
                                                        f"{again['why']}")
             verdict["confirm"] = {"tasks": moved, "runs": len(more_base) + len(more_cand), "first": first,
                                   "again": {k: again[k] for k in ("verdict", "why", "passed", "p_value", "chance")},
-                                  "held": held}
+                                  "held": held, "selection": selection(trajs, cand_runs, more_base, more_cand, moved)}
+            if verdict["confirm"]["selection"]:
+                say(f"{label}: {verdict['confirm']['selection']['says']}")
             if why:
                 verdict["confirm"]["because"] = why
             say(f"{label}: confirmation {'held' if held else 'did not hold'}: {again['why']} "

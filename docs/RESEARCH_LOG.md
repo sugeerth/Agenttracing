@@ -4,6 +4,53 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-16
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- *SAGE: Stochastic Prompt Optimization via Agent-Guided Exploration*
+  (arXiv 2606.18902, EMNLP 2026 Industry). Each promoted change's gain
+  is shrunk by empirical Bayes for selection bias. The cumulative gain
+  becomes +13.2%, and a per-cycle bias subtraction gives +11.1%.
+- Winner's-curse background: the selection-bias bootstrap (arXiv
+  1311.3709) and MUSE on multi-treatment winner selection (arXiv
+  2510.04489).
+- *Interpreting Coding Agents Through Their Behavioral Trajectories*
+  (arXiv 2611.17440, NeurIPS 2026). 143,209 trajectories from 125 agent
+  configurations. Agents with like solve rates differ in how they
+  explore, edit and verify, and the behaviour identifies the agent
+  stack.
+- *Agent trajectories as programs* (arXiv 2606.16988): behavioural
+  fingerprints name the agent with 85.7% accuracy, and ProcGrep audits
+  traces.
+- Trace2Eval, again (logged 2026-11-13). A tool-call validation study
+  (arXiv 2603.29848): schema non-compliance, planner misalignment and
+  controller indexing errors.
+
+**Taken: how much luck was in a kept change's first test.** Since
+yesterday's tournaments, AgentDiff picks winners among several changes,
+and a winner's first gain is inflated. Its re-run runs are fresh.
+- Built: `selfevolve.selection`, the first and fresh gains on the moved
+  tasks, carried by every re-run and tournament row and said on the card.
+- Measured (synthetic, with the true gain known): the first test
+  overstated it about 2.5×, and the fresh runs were within 0.005 to
+  0.033. Recorded: the one real re-run held in full.
+- A measurement mistake caught on the way: counting only changes still
+  kept made the fresh runs look biased too. Keeping selects on them, so
+  every re-run is counted.
+
+**Not taken, and why:**
+- **Empirical-Bayes shrinkage** (SAGE). It needs a prior over true
+  effects, fitted across many promoted changes. An evolution here keeps
+  a handful, and the fresh runs give an estimate with no prior at all.
+- **Behavioural fingerprints** (2611.17440, 2606.16988). Identifying the
+  agent stack from its behaviour is a classifier trained on many runs.
+  AgentDiff compares two named arms.
+- **Schema checks of tool arguments.** `process.schema_validity` already
+  checks a call's arguments against the declared tool schema.
+
 ## 2026-11-15
 
 **How it was read.** Through search-engine extracts; arxiv.org could not

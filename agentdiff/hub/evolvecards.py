@@ -322,6 +322,16 @@ def _cost(cost, med) -> str:
     return f" · tokens {size} a run, {shown} by {tok['tasks']} tasks (p {tok['p']:.2g})"
 
 
+def _selection(sel) -> str:
+    """What the re-run says the gain was: ' · fresh runs +17 points where the first test showed +50'."""
+    if not sel or sel.get("first") is None or sel.get("fresh") is None:
+        return ""
+    def pts(x):
+        return f"{'+' if x >= 0 else '−'}{abs(x) * 100:.0f} points"
+    return (f' · <span class="mut" title="{e(sel.get("says") or "")}">fresh runs {pts(sel["fresh"])} where the first '
+            f'test showed {pts(sel["first"])}</span>')
+
+
 def _stacked(st) -> str:
     """A runner-up tested again on top of the winner: ' · on top of X: adds' or ': overlaps'."""
     if not st or not st.get("reading"):
@@ -510,6 +520,7 @@ def evolve_card(entry, data: dict, *, link: bool = True, title: bool = True, ado
             odds += (f' · <span class="ok" title="{e(conf["first"]["chance"])}">held when '
                      f'{e(", ".join(conf["tasks"]))} ran again</span>' if conf.get("held") else
                      f' · <span class="bad">did not hold when {e(", ".join(conf["tasks"]))} ran again</span>')
+        odds += _selection(conf.get("selection"))
         odds += _cost(t.get("cost") if t else None, t.get("median_tokens") if t else None)
         odds += _target((t or {}).get("target"))
         odds += _tournament(g.get("tournament"))

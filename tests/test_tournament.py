@@ -133,6 +133,35 @@ class StackedTest(unittest.TestCase):
         self.assertEqual(stacked(dict(alone, passed={"current": [4, 8], "changed": [4, 8]}), top), {})
 
 
+class SelectionTest(unittest.TestCase):
+    def test_the_reading(self):
+        from agentdiff.selfevolve import selection
+        runs = lambda label, passes: [make_traj("a", t, ok, run_id=f"{label}-{i}") for i, (t, ok) in enumerate(passes)]
+        base = runs("a", [("t1", False), ("t1", False), ("t2", False), ("t2", True)])
+        cand = runs("b", [("t1", True), ("t1", True), ("t2", True), ("t2", True)])
+        more_base = runs("c", [("t1", False), ("t1", False), ("t2", True), ("t2", True)])
+        more_cand = runs("d", [("t1", True), ("t1", False), ("t2", True), ("t2", True)])
+        got = selection(base, cand, more_base, more_cand, ["t1", "t2"])
+        self.assertEqual((got["first"], got["fresh"], got["shrink"]), (0.75, 0.25, 0.3333))
+        self.assertIn("overstated it 3.0×", got["says"])
+        # only the moved tasks count
+        self.assertEqual(selection(base, cand, more_base, more_cand, ["t2"])["first"], 0.5)
+        self.assertEqual(selection(base, cand, [], more_cand, ["t1"]), {})
+
+    def test_a_re_run_carries_it(self):
+        # opt0 wins three tasks, but only on its first runs; the re-run shows none of it
+        def passes(t, h, label):
+            if has(h, 0) and "confirm" not in label and t in ("t1", "t2", "t3"):
+                return True
+            return has(h, 1) and t in ("t1", "t2")
+        res = evolve(Arm(passes), breadth=2)
+        rows = {r["remedy"]: r for r in res["lineage"][0]["tournament"]["tested"]}
+        lucky, real = rows["explore:opt0"]["selection"], rows["explore:opt1"]["selection"]
+        self.assertEqual((lucky["first"], lucky["fresh"], lucky["shrink"]), (1.0, 0.0, 0.0))
+        self.assertIn("none of it held", lucky["says"])
+        self.assertEqual(real["shrink"], 1.0)
+
+
 class CardTest(unittest.TestCase):
     def test_the_card_says_it(self):
         from agentdiff.hub.evolvecards import _tournament
@@ -140,6 +169,12 @@ class CardTest(unittest.TestCase):
         self.assertIn("best of 3 tested, replicated", _tournament(res["lineage"][0]["tournament"]))
         self.assertEqual(_tournament(None), "")
         self.assertEqual(_tournament({"breadth": 1}), "")
+
+    def test_the_card_says_the_fresh_gain(self):
+        from agentdiff.hub.evolvecards import _selection
+        self.assertIn("fresh runs +25 points where the first test showed +75 points",
+                      _selection({"first": 0.75, "fresh": 0.25, "says": "s"}))
+        self.assertEqual(_selection(None), "")
 
     def test_the_card_says_stacking(self):
         from agentdiff.hub.evolvecards import _stacked
