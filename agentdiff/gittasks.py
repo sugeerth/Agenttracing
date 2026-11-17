@@ -366,10 +366,16 @@ def _tool_input(value) -> dict:
     return {}
 
 
+#: the GitHub CLI's subcommands that ask GitHub about a repository: its pull requests, issues, releases, workflow
+#: runs, code search, or the API itself. ``gh auth``, ``gh config`` and ``gh --version`` stay local.
+GH_REMOTE = ("pr", "issue", "api", "search", "repo", "release", "run", "workflow", "browse", "gist", "cache")
+
+
 def reached_outside(trajectory, names: List[str]) -> List[dict]:
     """The steps of a run on a task from a repository's history that reached outside its workspace for the
-    project's own code: git talking to a remote (the workspace carries no ``.git``), a package index asked for
-    the project, a URL or web search that names it, or a path into an installed copy of it. Any of these can
+    project's own code: git talking to a remote (the workspace carries no ``.git``), the GitHub CLI asking GitHub
+    about a repository (its pull requests, API or code search), a package index asked for the project (pip, or
+    uv), a URL or web search that names it, or a path into an installed copy of it. Any of these can
     hand the agent the change it was asked to make. Read from the tool calls the trace records, by rule; a run
     whose tools the trace does not record cannot be checked. Returns ``[{"step", "kind", "evidence"}]``."""
     names = [_norm_name(n) for n in names if n]
@@ -403,10 +409,26 @@ def reached_outside(trajectory, names: List[str]) -> List[dict]:
             rest = toks[1:]
             if head in ("python", "python3") and rest[:2] == ["-m", "pip"]:
                 head, rest = "pip", rest[2:]
+            if head == "uv" and rest[:1] == ["pip"]:
+                head, rest = "pip", rest[1:]
+            elif head == "uv" and rest[:1] == ["add"]:
+                head, rest = "pip", ["install"] + rest[1:]
             if head == "git" and rest:
                 sub = [t for t in rest if not t.startswith("-")]
                 if sub[:1] and sub[0] in ("clone", "fetch", "pull", "ls-remote") or sub[:2] == ["remote", "add"]:
                     hit(step, "used git over the network", " ".join(toks))
+            elif head == "gh" and rest:
+                # the first word that is not a flag or a flag's value is the subcommand: `gh -R o/p pr diff 12`
+                words, skip = [], False
+                for t in rest:
+                    if skip:
+                        skip = False
+                    elif t in ("-R", "--repo", "--hostname"):
+                        skip = True
+                    elif not t.startswith("-"):
+                        words.append(t)
+                if words and words[0] in GH_REMOTE:
+                    hit(step, "asked GitHub with its command-line tool", " ".join(toks))
             elif head in ("pip", "pip3") and rest and rest[0] in ("install", "download", "show"):
                 for t in rest[1:]:
                     m = _REQ.match(t)

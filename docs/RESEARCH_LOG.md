@@ -4,6 +4,41 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-17
+
+**How it was read.** Through search-engine extracts and GitHub;
+arxiv.org could not be reached from this session.
+
+**Read:**
+- Audits of tasks mined from repository history:
+  - DeepSWE builds 113 original tasks rather than mining commits.
+  - SWE-Bench Pro reports agents reading the fix from `.git`.
+  - An audit by Cursor found 63% of one model's wins came from public
+    GitHub history.
+  - Superconductor found 12 of 49 contaminated implementations reached
+    the fix through `gh pr`, `gh api` or GitHub search.
+- The OpenTelemetry GenAI conventions, again: nothing new since they
+  were last read here.
+- The harness-evolution papers logged on 2026-11-15 and 2026-11-16.
+
+**Taken: a from-git run asking GitHub, or uv, for the fix.**
+`reached_outside` already caught git, pip, URLs, web search and
+installed copies, but not the GitHub CLI, the route one audit found
+most often, nor uv.
+- Built: `gh` subcommands that ask GitHub (`GH_REMOTE`), and uv's
+  `pip install`/`download` and `add`, read like pip.
+- Measured: 0 of 1,165 recorded traces flagged, before and after (none
+  runs `gh` or `uv`). On 26 labelled synthetic forms that reach out,
+  2 caught before and 26 after; 0 of 18 local forms flagged.
+
+**Not taken, and why:**
+- **Original tasks instead of mined ones** (DeepSWE). Writing tasks is
+  a person's work, not a tool's; `--from-git` stays, and says when a run
+  reached out.
+- **Blocking the network during a run.** Network rules belong to the
+  runner's sandbox, not to a trace reader, and AgentDiff's network code
+  stays in the harness; a flag that reports is what fits here.
+
 ## 2026-11-16
 
 **How it was read.** Through search-engine extracts; arxiv.org could not

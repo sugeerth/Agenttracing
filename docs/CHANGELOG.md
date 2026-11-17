@@ -5,6 +5,30 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A from-git run asking GitHub, or uv, for the fix
+
+`gittasks.reached_outside` flags two more ways out:
+- the GitHub CLI asking GitHub about a repository: `gh pr`, `issue`,
+  `api`, `search`, `repo`, `release`, `run`, `workflow`, `browse`, `gist`
+  or `cache`, with `-R`/`--repo` read past. `gh --version`, `gh auth`,
+  `gh config` and `gh help` stay local;
+- uv asking a package index for the project: `uv pip install` or
+  `download`, and `uv add`, read like pip and flagged only when they
+  name the project (`uv pip install -e .` is not).
+
+It is reported, and changes no verdict.
+
+Measured:
+- **Recorded:** 1,165 recorded traces under `demo/` (35,148 steps):
+  0 flagged before, 0 after. None of them runs `gh` or `uv`, so this
+  shows no new false alarms, not that the rules catch anything real.
+- **Synthetic, labelled** (26 command forms that reach out, written
+  here from the audits' descriptions, and 18 that stay local): before,
+  2 of 26 caught (the git and pip controls); after, 26 of 26, with 0 of
+  18 local forms flagged. The forms were written alongside the rules,
+  so this is a check that the rules do what they say, not a recall
+  estimate.
+
 ## How much luck was in a kept change's first test
 
 `selfevolve.selection`, carried as `selection` in every re-run

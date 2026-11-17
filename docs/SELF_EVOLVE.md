@@ -198,8 +198,10 @@ agent runs.
   code (`gittasks.retrieval_check`). The project's names come from the
   repository and its top-level packages. Flagged:
   - git talking to a remote;
+  - the GitHub CLI asking GitHub about a repository (`gh pr`, `gh api`,
+    `gh search` and the like; `gh auth` and `gh --version` stay local);
   - a package index asked for the project (pip `install`, `download` or
-    `show` naming it);
+    `show` naming it, and uv's `uv pip install` or `uv add`);
   - a URL or a web search that names it;
   - a path into an installed copy (`site-packages/<package>`).
 

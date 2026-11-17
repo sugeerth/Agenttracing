@@ -67,6 +67,27 @@ class ReachedOutsideTest(unittest.TestCase):
             ("WebSearch", {"query": "how to write a unicode test in python"}))
         self.assertEqual(reached_outside(clean, NAMES), [])
 
+    def test_the_github_cli_asking_github(self):
+        """Forms an audit of history-mined tasks describes: pull requests, the API and code search, through ``gh``."""
+        for cmd in ("gh pr diff 1234", "gh pr view 99 --comments", "gh -R un33k/python-slugify pr list --state merged",
+                    "gh --repo=un33k/python-slugify issue view 7", "gh api repos/un33k/python-slugify/commits",
+                    "gh search code 'def slugify' --repo un33k/python-slugify", "gh repo clone un33k/python-slugify /tmp/s",
+                    "gh release download v8.0.4 -R un33k/python-slugify", "cd /tmp && gh run view 5 --log | tail"):
+            got = [s["kind"] for s in reached_outside(_run(bash(cmd)), NAMES)]
+            self.assertEqual(got, ["asked GitHub with its command-line tool"], cmd)
+
+    def test_the_github_cli_staying_local(self):
+        for cmd in ("gh --version", "gh auth status", "gh config get editor", "gh help pr", "echo gh pr list"):
+            self.assertEqual(reached_outside(_run(bash(cmd)), NAMES), [], cmd)
+
+    def test_uv_asking_a_package_index(self):
+        for cmd in ("uv pip install python-slugify", "uv pip install 'python-slugify==8.0.4'",
+                    "uv pip download python_slugify -d /tmp/x", "uv add python-slugify"):
+            got = [s["kind"] for s in reached_outside(_run(bash(cmd)), NAMES)]
+            self.assertEqual(got, ["asked a package index for the project"], cmd)
+        for cmd in ("uv pip install -e .", "uv pip install pytest", "uv add --dev pytest", "uv run pytest -q", "uv sync"):
+            self.assertEqual(reached_outside(_run(bash(cmd)), NAMES), [], cmd)
+
     def test_counted_over_runs_and_reported_only(self):
         runs = [_run(bash("pytest -q"), run="a"), _run(("WebSearch", {"query": "python-slugify changelog"}), run="b"),
                 _run(bash("git fetch origin && git log"), run="c")]
