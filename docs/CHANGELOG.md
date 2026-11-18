@@ -5,6 +5,32 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Every tournament contender counted in the family
+
+`selfevolve.family` took one sign test per generation, the generation's
+own. A tournament tests several changes against the same runs, so at
+breadth 3 the card said "across the 3 tested" where 9 were tested. Each
+contender with a sign test is now in the family under
+`generation:remedy`, beside the generation's own test, and Holm's
+adjustment runs over all of them. Reported, as before; it decides
+nothing.
+
+Measured:
+- **Synthetic, seeded** (200 evolutions a setting; 12 tasks at fixed
+  pass rates, 3 runs a task, 3 generations, every change a placebo):
+
+  | Breadth | Tests counted before | Tests made | Some adjusted p ≤ 0.05, before | After |
+  | --- | --- | --- | --- | --- |
+  | 1 | 3.0 | 3.0 | 4.5% | 4.5% |
+  | 3 | 3.0 | 9.0 | 1.5% | 0.0% |
+  | 5 | 3.0 | 11.6 | 3.0% | 0.5% |
+
+  The family-wise level held even miscounted (re-running the winner
+  pools its first test's luck away, and with re-runs off it was 5.5% and
+  3.0% at breadth 3 and 5). What was wrong was the count the card gave.
+- **Recorded:** 9 recorded lineages, none with a tournament: the family
+  is unchanged for every one.
+
 ## When repeated runs part, and whether they come back
 
 `reliability.path_parting`, carried as `parting` beside `split` in each

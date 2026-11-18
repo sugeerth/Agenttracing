@@ -356,7 +356,16 @@ Evolve has the same as a third way in, "On your repository's history".
   is adjusted with Holm's step-down method for all of them, and the card
   shows it beside a kept change's own odds: "1 in 8 by chance (1 in 3
   across the 3 tested)". Like the sign test, it is reported, never used
-  to decide.
+  to decide. A tournament tests several changes in one generation, and
+  every contender with a sign test is in the family (`g1:explore:x` beside
+  `g1`), so "across the 9 tested" counts every test made.
+  - **Synthetic, seeded** (200 evolutions a setting, 12 tasks, 3 runs a
+    task, every change a placebo): counting only each generation's own
+    test, the family held 3 tests where 9 (breadth 3) and 11.6 (breadth
+    5) were made. Some adjusted chance fell to 0.05 or below in 1.5% and
+    3.0% of evolutions as counted, against 0.0% and 0.5% with every
+    test counted. The level held even miscounted, since the winner's
+    re-run pools its luck away, but the count shown was wrong.
   - **Recorded:** the 4 changes kept in the real evolutions on disk each
     had a 1-in-2 sign test on its own. In the python-slugify run, which
     tested 3 changes, the adjusted chance is 1: across 3 tests, a change

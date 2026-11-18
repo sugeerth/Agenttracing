@@ -35,6 +35,28 @@ class HolmTest(unittest.TestCase):
         self.assertEqual(fam["tests"], 2, "a change no task moved under has no sign test to adjust")
         self.assertEqual(fam["adjusted"], {"g0": 0.25, "g2": 0.25})
 
+    def test_every_contender_of_a_tournament_is_a_test_made(self):
+        g0 = _gen("g0", 0.125)
+        g0["tournament"] = {"breadth": 3, "winner": "explore:g0", "tested": [
+            {"remedy": "explore:g0", "verdict": "kept", "p_value": 0.125},
+            {"remedy": "explore:b", "verdict": "reverted", "p_value": 0.5},
+            {"remedy": "explore:c", "verdict": "reverted", "p_value": None}]}
+        fam = family([g0, _gen("g1", 0.25, "reverted")])
+        # the winner once, the other contender with a sign test, the next generation: three tests, not two
+        self.assertEqual(fam["tests"], 3)
+        self.assertEqual(fam["adjusted"], {"g0": 0.375, "g1": 0.5, "g0:explore:b": 0.5})
+
+    def test_through_the_loop(self):
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_tournament import Arm, evolve, has
+        # opt0 fixes t1 and t2, opt1 fixes t3: both move tasks, so both have a sign test
+        res = evolve(Arm(lambda t, h, label: (has(h, 0) and t in ("t1", "t2")) or (has(h, 1) and t == "t3")
+                         or t == "t4"), breadth=3)
+        rows = res["lineage"][0]["tournament"]["tested"]
+        made = sum(r["p_value"] is not None for r in rows)
+        self.assertGreater(made, 1)
+        self.assertEqual(res["family"]["tests"], made)
+
 
 class CardTest(unittest.TestCase):
     def _card(self, lineage):

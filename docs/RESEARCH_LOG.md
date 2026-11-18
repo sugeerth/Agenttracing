@@ -4,6 +4,49 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-18, second run
+
+**How it was read.** Through search-engine extracts; arxiv.org and
+preprints.org could not be reached from this session.
+
+**Read:**
+- *The Contamination Clock: Evaluation Validity as Runtime State in
+  Adaptive AI Systems* (preprint, October 2026). Each score is tied to
+  the system snapshot and evaluation history that made it. Its effect is
+  a placebo-adjusted contrast: the gain on reused tasks less the gain on
+  sealed ones, less the same contrast under an unrelated-memory placebo
+  (mean 0.469, 95% interval 0.377–0.560). It accounts exactly for the
+  selection in one committed best-of-k comparison. Only the abstract
+  could be read.
+- Failure attribution: *Who&When Pro* (arXiv 2607.09996; 12,326 failure
+  traces labelled for agent, step and mode), and LongRCA Bench,
+  SearchAuditor, AgentRx and Soap again (logged before).
+- Evolving benchmarks: EvoProbe (arXiv 2610.19433), EvoBrowseComp,
+  ArenaBencher, LivingArena and a live-arena note on contamination
+  "rotation shocks".
+- The OpenTelemetry GenAI conventions: still in Development, with no
+  tagged release since the move to their own repository.
+
+**Taken: every tournament contender counted in the family.** The
+preprint's point, that a best-of-k pick must be accounted as k tests,
+showed a miscount in AgentDiff itself: `family` took one test per
+generation, so a tournament's other contenders were left out of Holm's
+adjustment, and the card's "across the N tested" was short by 3–4×.
+- Built: each contender with a sign test is in the family.
+- Measured (synthetic, all placebos): 3 tests counted where 9 and 11.6
+  were made. The family-wise rate was within the level either way (the
+  re-run gate held it), but the stated count was wrong.
+
+**Not taken, and why:**
+- **The placebo-adjusted contrast of reused and sealed tasks.** It
+  needs a held-out arm, and no recorded evolution here has one (see the
+  first run today).
+- **Benchmarks that a model evolves** (EvoProbe, ArenaBencher,
+  LivingArena). A model writes or judges the tasks.
+- **Who&When Pro.** A labelled failure set to score the diagnoser on, as
+  Who&When was. Its data was not looked at this run; a later run can
+  score the diagnoser on it as run 10 did on Who&When.
+
 ## 2026-11-18
 
 **How it was read.** Through search-engine extracts; arxiv.org could not

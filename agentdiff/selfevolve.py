@@ -392,8 +392,18 @@ def forgetting(lineage: list) -> dict:
 
 def family(lineage: list) -> dict:
     """The evolution's tested changes taken as one family: how many were tested, and each one's sign test
-    adjusted for all of them (:func:`holm`). Reported beside each verdict; it decides nothing."""
-    ps = {g["generation"]: test_of(g)["p_value"] for g in lineage if test_of(g).get("p_value") is not None}
+    adjusted for all of them (:func:`holm`). A tournament tests several changes in one generation, and each is a
+    test made: the generation's own test is keyed by the generation, every other contender by
+    ``generation:remedy``. Reported beside each verdict; it decides nothing."""
+    ps: Dict[str, float] = {}
+    for g in lineage:
+        test = test_of(g)
+        if test.get("p_value") is not None:
+            ps[g["generation"]] = test["p_value"]
+        own = (((g.get("action") or {}).get("remedy")) or {}).get("id")
+        for row in (g.get("tournament") or {}).get("tested") or []:
+            if row.get("remedy") != own and row.get("p_value") is not None:
+                ps[f"{g['generation']}:{row['remedy']}"] = row["p_value"]
     return {"tests": len(ps), "adjusted": holm(ps)}
 
 
