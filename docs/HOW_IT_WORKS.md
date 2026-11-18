@@ -168,6 +168,20 @@ The three parts add up to 1 for every pair, and so do their means. On
 the recorded real runs, almost all of the loss is other actions. Shuffling
 each path's order would add 0.20–0.29 lost to order.
 
+Its `parting` says when they part, and whether they come back. For each
+pair of runs that differ:
+- **at**: the first step where they take different actions;
+- **before**: the share of the longer path taken alike up to there;
+- **rejoin**: of the steps after it, the share that line up again (the
+  common subsequence of the two remainders over the longer one).
+
+`before + rejoin × (1 − before)` is the split's agreement, so parting
+says where in the path the agreement sits. On the recorded real runs,
+paths part at a median step 2, 8–34% of the way in, and 56–67% of what
+follows lines up again. Shuffling each run's steps after the parting,
+200 times, gives 25–56% lining up, and no shuffle came as high as the
+real runs: the runs part early, then go back to the same work.
+
 ## 4. What the page draws, and how to read it
 
 The page is one file (`web/blocks.html`, built from `web/blocks/*.js`)

@@ -5,6 +5,32 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## When repeated runs part, and whether they come back
+
+`reliability.path_parting`, carried as `parting` beside `split` in each
+task's and each agent's `trajectory_consistency`. A line under `agentdiff
+runs` and in the dashboard tile says it. For each pair of passing runs
+that differ, it gives:
+- `at`: the first step where they take different actions;
+- `before`: the share of the longer path taken alike up to there;
+- `rejoin`: the share of the steps after it that line up again.
+
+A task gives the median step and the mean shares over its pairs, and an
+agent the same over its tasks. Identical pairs are counted, not averaged
+in. `before + rejoin × (1 − before)` equals the split's agreement for
+every pair (tested on 500 random pairs).
+
+Measured, on every recorded real run set:
+- **A/A suite:** part at a median step 2 (agent A) and 3 (agent B),
+  27% and 34% of the way in; 67% and 64% of what follows lines up again.
+- **Hard-task example:** step 2, 16% in; 56% (v0) and 58% (v1) line up
+  again.
+- **Six-task example:** step 2, 8% in; 59% line up again.
+- **Against shuffled remainders** (each run's steps after the parting
+  shuffled, seeded, 200 times; pooled over pairs): 0.36–0.56 (A/A),
+  0.38–0.43 (hard-task) and 0.25–0.50 (six-task) line up, against 0.65,
+  0.54 and 0.59 for the real runs. No shuffle reached the real figure.
+
 ## A from-git run asking GitHub, or uv, for the fix
 
 `gittasks.reached_outside` flags two more ways out:

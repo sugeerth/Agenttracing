@@ -147,6 +147,10 @@ def _print_reliability(analysis: dict) -> None:
         if split.get("says"):
             print(f"    paths: {split['says']} "
                   f"({split['tasks_scored']} task(s))")
+        parting = row["trajectory_consistency"].get("parting") or {}
+        if parting.get("says"):
+            print(f"    parting: {parting['says']} "
+                  f"({parting['tasks_scored']} task(s))")
         icc = row["icc"]
         if icc.get("icc1") is not None:
             print(f"    ICC(1): {icc['icc1_clamped']:.3f} "

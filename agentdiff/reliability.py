@@ -83,7 +83,7 @@ from typing import Optional, Sequence
 
 from .similarity import lcs_length
 from .stability import _cv, _levenshtein
-from ._stats import percentile_interval
+from ._stats import median as _median, percentile_interval
 from .statistics import (BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, CONFIDENCE, central_range, exact_interval, fail_rate_at_most,
                          pass_at_k, poisson_binomial, runs_to_rule_out, wilson_interval)
 from .trace import HARNESS_TERMINATIONS, Trajectory
@@ -235,6 +235,62 @@ def path_split_says(split: Optional[dict]) -> Optional[str]:
             "both other actions and another order")
     return (f"repeated runs' paths agree {split['agree']:.0%}; where they part, it is "
             f"{lead} ({split['actions']:.0%} other actions, {split['order']:.0%} order)")
+
+
+def path_parting_pair(a: Sequence[str], b: Sequence[str]) -> Optional[dict]:
+    """Where two action paths first part, and how much of what follows lines up again.
+
+    None for identical paths.  ``at`` is the first step (from 1) where they
+    take different actions; ``before`` the share of the longer path taken
+    alike up to there.  ``rejoin`` is the longest common subsequence of the
+    two remainders over the longer remainder: the share of the steps after
+    the parting that line up again.  The common prefix is always part of a
+    longest common subsequence, so ``before + rejoin * (1 - before)`` is
+    :func:`path_split_pair`'s agreement.
+    """
+    a, b = list(a), list(b)
+    if a == b:
+        return None
+    longest = max(len(a), len(b))
+    same = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        same += 1
+    rest = longest - same
+    return {"at": same + 1, "before": same / longest, "rejoin": lcs_length(a[same:], b[same:]) / rest}
+
+
+def path_parting(runs: Sequence[Trajectory]) -> Optional[dict]:
+    """:func:`path_parting_pair` over every pair of ``runs``.
+
+    None below two runs.  ``at`` is the median parting step over the pairs
+    that part; ``before`` and ``rejoin`` are their means.  Identical pairs
+    are counted, not averaged in: they never part.
+    """
+    if len(runs) < 2:
+        return None
+    seqs = [action_sequence(t) for t in runs]
+    pairs = [path_parting_pair(seqs[i], seqs[j])
+             for i in range(len(seqs)) for j in range(i + 1, len(seqs))]
+    parted = [x for x in pairs if x is not None]
+    out = {"pairs": len(pairs), "identical": len(pairs) - len(parted),
+           "at": None, "before": None, "rejoin": None}
+    if parted:
+        out["at"] = _median([x["at"] for x in parted])
+        out["before"] = round(_mean([x["before"] for x in parted]), 4)
+        out["rejoin"] = round(_mean([x["rejoin"] for x in parted]), 4)
+    return out
+
+
+def path_parting_says(parting: Optional[dict]) -> Optional[str]:
+    """One plain sentence for a parting, or None when nothing parted."""
+    if not parting or parting.get("at") is None:
+        return None
+    at = parting["at"]
+    step = f"step {at:g}" if float(at).is_integer() else f"about step {at:g}"
+    return (f"repeated runs part at a median {step}, {parting['before']:.0%} of the way in; "
+            f"after that, {parting['rejoin']:.0%} of the steps line up again")
 
 
 def _resource_values(runs: Sequence[Trajectory]) -> dict[str, list[float]]:
@@ -730,6 +786,7 @@ def _agent_reliability(name: str,
     outcome_scores: list[float] = []
     sequence_scores: list[float] = []
     split_scores: list[dict] = []
+    parting_scores: list[dict] = []
     resource_scores: list[float] = []
     resource_totals: dict[str, list[float]] = {}
     icc_groups: list[list[float]] = []
@@ -764,6 +821,9 @@ def _agent_reliability(name: str,
         split = path_split(successful)
         if split is not None:
             split_scores.append(split)
+        parting = path_parting(successful)
+        if parting is not None and parting["at"] is not None:
+            parting_scores.append(parting)
 
         resources = resource_consistency(runs)
         if resources["value"] is not None:
@@ -799,6 +859,7 @@ def _agent_reliability(name: str,
                 "runs_compared": len(successful),
                 "basis": "successful runs only (HAL)",
                 "split": split,
+                "parting": parting,
                 "reason": None if seq is not None
                 else f"needs at least 2 successful runs, has {len(successful)}",
             },
@@ -896,6 +957,20 @@ def _agent_reliability(name: str,
                  "lcs/max-length; what it loses splits exactly into other "
                  "actions (1 - multiset overlap/max) and the same actions in "
                  "another order ((overlap - lcs)/max); mean over pairs, then tasks",
+    }
+    agent_parting = ({"at": _median([x["at"] for x in parting_scores]),
+                      "before": round(_mean([x["before"] for x in parting_scores]), 4),
+                      "rejoin": round(_mean([x["rejoin"] for x in parting_scores]), 4)}
+                     if parting_scores else None)
+    sequence_block["parting"] = {
+        **(agent_parting or {"at": None, "before": None, "rejoin": None}),
+        "tasks_scored": len(parting_scores),
+        "says": path_parting_says(agent_parting),
+        "basis": "per pair of successful runs that part: the first step where they "
+                 "take different actions, the share of the longer path taken alike "
+                 "before it, and the longest common subsequence of what follows over "
+                 "the longer remainder; median step and mean shares over pairs, then "
+                 "median step and mean shares over tasks",
     }
     resource_block = {
         "value": round(_mean(resource_scores), 4) if resource_scores else None,

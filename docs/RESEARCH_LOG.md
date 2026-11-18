@@ -4,6 +4,48 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-18
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- *On Randomness in Agentic Evals* (Bjarnason et al., arXiv 2602.07150).
+  Ten runs of six configurations on SWE-Bench Verified: variance stays
+  at temperature 0, and runs part early in the token stream. It asks for
+  pass@1 from several runs and a power analysis before claiming small
+  gains.
+- *AgentLens* (arXiv 2607.06624): 16 of 32 scenario points flaky across
+  five runs, the instability in a few tasks. *SWE-NFI* (arXiv
+  2607.27409): low variance can be consistent failure. *Consistency
+  Amplifies* (arXiv 2603.25764) and a repeated-run stability study
+  (arXiv 2606.00920).
+- Harness evolution on held-out tasks: Self-Harness (2606.09498),
+  HarnessFix (2606.06324), gated semantic quality-diversity (2607.13683,
+  86–147% of the training gain kept on sealed tests), DarwinX
+  (2608.07545), HarnessDev (2609.01437), and a Terminal-Bench study of
+  +0.6 pass@1 on unseen tasks.
+
+**Taken: when repeated runs part, and whether they come back.**
+Bjarnason et al. find runs part early. AgentDiff's `split` said how much
+two paths agree, not where they part or whether they come back.
+- Measured before building, on every recorded real run set: paths part
+  at a median step 2, and 54–65% of what follows lines up again, above
+  every one of 200 shuffles of the remainders.
+- Built: `reliability.path_parting`, carried as `parting`, said under
+  `agentdiff runs` and in the dashboard tile.
+
+**Not taken, and why:**
+- **Power analysis before claiming a gain** (Bjarnason et al.).
+  `selfevolve.resolution` already gives each test's power and the tasks
+  it would need.
+- **Flaky tasks named** (AgentLens). `signal` and the flaky-task chips
+  already name the tasks that pass some runs and fail others.
+- **How much of an evolution's gain carried to held-out tasks.** No
+  recorded evolution here has a held-out arm, so it could be shown only
+  on synthetic runs, and on 2 held-out tasks the share is too noisy to
+  read. Revisit when a `--holdout` evolution is recorded.
+
 ## 2026-11-17
 
 **How it was read.** Through search-engine extracts and GitHub;
