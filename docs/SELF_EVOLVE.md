@@ -203,7 +203,10 @@ agent runs.
   - a package index asked for the project (pip `install`, `download` or
     `show` naming it, and uv's `uv pip install` or `uv add`);
   - a URL or a web search that names it;
-  - a path into an installed copy (`site-packages/<package>`).
+  - a path into an installed copy (`site-packages/<package>`);
+  - git finding a repository at all: the workspace has none, so a git
+    command that does not fail for want of one read another repository
+    (a run that made its own with `git init` is left alone).
 
   Each shell command is split into its parts and read token by token, so
   a line that installs a linter and then lints `slugify/slugify.py` is
@@ -215,7 +218,22 @@ agent runs.
     coverage install and a `pip show` of packaging tools.
 - **The workspace holds no history.** It is the parent's tree from
   `git archive`, with no `.git`, so the agent cannot read the fix from
-  the repository's own log.
+  the repository's own log. Git also looks for a repository by walking
+  up from where it runs, so a run directory inside a checkout (a
+  `TMPDIR` set inside one, say) would hand the agent that checkout's
+  history instead. Every agent runs with `GIT_CEILING_DIRECTORIES` set
+  to its own run directory, so git stops there: a workspace's own `.git`
+  is still found, nothing above it is.
+  - **Constructed, run for real** through the harness with the scripted
+    stand-in: a repository whose history holds the fix, the run
+    directory inside it, and 8 git commands an agent might run from its
+    workspace (`git status`, `git log -p -1`, `git show HEAD`, `git log
+    --all`, `git reflog` and others). Without the ceiling, 8 of 8 found
+    the repository and 6 printed the fix; with it, 0 of 8. The check
+    above flagged all 8 runs without the ceiling and none with it.
+  - **Recorded:** 11 real runs ran `git status` in their workspace, and
+    all 11 got "not a git repository". None of the 1,165 recorded
+    traces is flagged.
 
 - Merges, commits with more than 12 files, and messages under 20
   characters are not used.

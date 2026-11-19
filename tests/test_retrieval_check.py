@@ -88,6 +88,28 @@ class ReachedOutsideTest(unittest.TestCase):
         for cmd in ("uv pip install -e .", "uv pip install pytest", "uv add --dev pytest", "uv run pytest -q", "uv sync"):
             self.assertEqual(reached_outside(_run(bash(cmd)), NAMES), [], cmd)
 
+    def test_git_finding_a_repository_at_all(self):
+        """The workspace carries no .git: a git command that does not fail for want of one read another repository."""
+        def run(*steps):
+            calls = [("Bash", {"command": c}) for c, _ in steps]
+            traj = _run(*calls)
+            for step, (_, out) in zip(traj.steps, steps):
+                step.output = out
+            return [s["kind"] for s in reached_outside(traj, NAMES)]
+        found = "found a git repository outside the workspace"
+        self.assertEqual(run(("git log -p -1", "commit 1a2b\n    Fix the separator")), [found])
+        self.assertEqual(run(("git status", "On branch main\nnothing to commit")), [found])
+        self.assertEqual(run(("cd /srv/src && git show HEAD", "commit 9f")), [found])
+        # what the recorded runs got: no repository, so nothing reached
+        self.assertEqual(run(("git status", "fatal: not a git repository (or any of the parent directories): .git")), [])
+        for cmd in ("git --version", "git help log", "git config --global user.name x"):
+            self.assertEqual(run((cmd, "something")), [], cmd)
+        self.assertEqual(run(("git diff", "")), [], "nothing recorded, nothing to tell")
+        self.assertEqual(run(("git log", "bash: git: command not found")), [])
+        # a repository the run made itself is its own
+        self.assertEqual(run(("git init -q && git add . && git commit -qm base", "[main (root-commit) 1] base"),
+                             ("git log --oneline", "1 base")), [])
+
     def test_counted_over_runs_and_reported_only(self):
         runs = [_run(bash("pytest -q"), run="a"), _run(("WebSearch", {"query": "python-slugify changelog"}), run="b"),
                 _run(bash("git fetch origin && git log"), run="c")]

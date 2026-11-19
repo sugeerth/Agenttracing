@@ -369,13 +369,20 @@ def _tool_input(value) -> dict:
 #: the GitHub CLI's subcommands that ask GitHub about a repository: its pull requests, issues, releases, workflow
 #: runs, code search, or the API itself. ``gh auth``, ``gh config`` and ``gh --version`` stay local.
 GH_REMOTE = ("pr", "issue", "api", "search", "repo", "release", "run", "workflow", "browse", "gist", "cache")
+#: what git prints when it finds no repository, which is what a workspace with no ``.git`` should get
+GIT_NO_REPO = ("not a git repository", "not in a git directory")
+#: git subcommands that need no repository, or make one: they say nothing about what git found
+GIT_LOCAL = ("init", "clone", "help", "version", "config", "--version", "--help", "-h")
 
 
 def reached_outside(trajectory, names: List[str]) -> List[dict]:
     """The steps of a run on a task from a repository's history that reached outside its workspace for the
     project's own code: git talking to a remote (the workspace carries no ``.git``), the GitHub CLI asking GitHub
     about a repository (its pull requests, API or code search), a package index asked for the project (pip, or
-    uv), a URL or web search that names it, or a path into an installed copy of it. Any of these can
+    uv), a URL or web search that names it, a path into an installed copy of it, or git finding a repository
+    at all (the workspace has none, so a git command that does not fail for want of one read another
+    repository's history, a checkout above the run directory say; a run that made its own with ``git init``
+    is left alone, and so is a step whose output was not recorded). Any of these can
     hand the agent the change it was asked to make. Read from the tool calls the trace records, by rule; a run
     whose tools the trace does not record cannot be checked. Returns ``[{"step", "kind", "evidence"}]``."""
     names = [_norm_name(n) for n in names if n]
@@ -388,6 +395,7 @@ def reached_outside(trajectory, names: List[str]) -> List[dict]:
         low = _norm_name(str(text))
         return any(n in low for n in names)
 
+    made_repo = False
     for step in trajectory.steps:
         inp, raw = _tool_input(step.input), step.input if isinstance(step.input, str) else ""
         tool = (step.name or "").lower()
@@ -417,6 +425,13 @@ def reached_outside(trajectory, names: List[str]) -> List[dict]:
                 sub = [t for t in rest if not t.startswith("-")]
                 if sub[:1] and sub[0] in ("clone", "fetch", "pull", "ls-remote") or sub[:2] == ["remote", "add"]:
                     hit(step, "used git over the network", " ".join(toks))
+                if sub[:1] and sub[0] in ("init", "clone"):
+                    made_repo = True
+                elif (not made_repo and rest[0] not in GIT_LOCAL and (not sub or sub[0] not in GIT_LOCAL)
+                      and isinstance(step.output, str) and step.output.strip()
+                      and not any(m in step.output.lower() for m in GIT_NO_REPO)
+                      and "command not found" not in step.output.lower()):
+                    hit(step, "found a git repository outside the workspace", " ".join(toks))
             elif head == "gh" and rest:
                 # the first word that is not a flag or a flag's value is the subcommand: `gh -R o/p pr diff 12`
                 words, skip = [], False

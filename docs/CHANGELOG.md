@@ -5,6 +5,32 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A run cannot find a git repository above its own directory
+
+`harness.vendors.vendor_env(ceiling=...)`: every agent runs with
+`GIT_CEILING_DIRECTORIES` set to its run directory, kept beside any
+ceiling the operator set. Git looks for a repository by walking up from
+where it runs, so a run directory inside a checkout would hand the agent
+that checkout's history. For a task built from a repository's history,
+that history holds the fix. A workspace's own `.git` is still found.
+
+`gittasks.reached_outside` also flags git finding a repository at all in
+a `--from-git` run. The workspace has none, so a git command whose output
+does not say "not a git repository" read another one. It skips a run that
+made its own with `git init`, a step whose output was not recorded, and
+git's local subcommands (`--version`, `help`, `config`). It is reported,
+and decides nothing.
+
+Measured:
+- **Constructed, run for real** (the harness and the scripted stand-in;
+  a repository whose history holds the fix, with the run directory inside
+  it; 8 git commands an agent might run): without the ceiling, 8 of 8
+  found the repository, 6 printed the fix, and the check flagged 8. With
+  it, 0, 0 and 0.
+- **Recorded:** 11 real runs ran `git status` in their workspace, and all
+  got "not a git repository". 0 of 1,165 recorded traces are flagged,
+  before and after.
+
 ## The evidence page: how repeated runs differ, and choosing among changes
 
 `web/evidence.html` and `web/evidence.py`, built into `/agentdiff/evidence/`

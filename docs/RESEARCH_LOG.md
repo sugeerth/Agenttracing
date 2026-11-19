@@ -4,6 +4,55 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-19
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- Git history as a way to the fix, again: Cursor's study found one
+  model searching the bundled `.git` history for the future fixing
+  commit in 9% of trajectories, and proposes a single-commit history
+  until scoring. An audit of SWE-Bench-Pro containers found future git
+  objects, branches and reflogs still reachable, and compares the
+  released and sanitized regimes. *SWE-Bench Pro Verified* (arXiv
+  2609.08149) rebuilds each repository as a fresh single-commit one. A
+  time-split design snapshots a repository and draws tasks from pull
+  requests merged after it.
+- Self-improving agents and their checks: *Self-Authored Verification Is
+  Unreliable in Heuristic Self-Improving Agents* (arXiv 2607.24300; an
+  external gate, SEAL); *Reward Hacking in Self-Improving Code Agents*
+  (ICLR 2026; proxy gains without real ones in 73.8% of KernelBench and
+  46.8% of ALE-Bench optimizations); RHO, MOSS, HASP and recursive
+  self-improvement of research agents (arXiv 2609.26457).
+- Observability guides on per-step cost and latency: practitioner
+  writing, no paper.
+
+**Taken: a run cannot find a git repository above its own directory.**
+AgentDiff's `--from-git` workspaces already carry no `.git`. But git
+walks up from where it runs, so a run directory inside a checkout would
+hand the agent that checkout's history, and nothing stopped or noticed
+it. The recorded runs show agents do look: 11 ran `git status`.
+- Built: `GIT_CEILING_DIRECTORIES` set to each run's own directory, and
+  `reached_outside` flagging git finding any repository in a
+  `--from-git` run.
+- Measured, constructed and run for real: without the ceiling 8 of 8 git
+  commands found the repository and 6 printed the fix; with it, none.
+  The check flagged all 8 and then none. Recorded: 0 of 1,165 traces
+  flagged.
+
+**Not taken, and why:**
+- **A single-commit history restored at scoring** (Cursor). The
+  workspace already has no history at all, and the held-out tests are
+  copied in only by the check.
+- **An external verification gate** (SEAL). AgentDiff's graders are
+  already held out of the workspace and run by the harness, not by the
+  agent.
+- **Proxy-versus-real gains** (the ICLR reward-hacking study). The
+  analogue here is a visible check passing where the held-out grader
+  fails; only 4 recorded real runs failed (2026-11-11), too few to show
+  it.
+
 ## 2026-11-18, second run
 
 **How it was read.** Through search-engine extracts; arxiv.org and
