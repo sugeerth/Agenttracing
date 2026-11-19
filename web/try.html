@@ -148,7 +148,7 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
         <h2 id="h-curve">pass^k: passing every one of k tries</h2>
         <p class="sub">The mean over tasks of C(c,k)/C(n,k), with its 95% interval. A line that falls with k is an agent that can do the work but not every time.</p>
         <div class="legend" id="curve-legend"></div>
-        <svg class="chart" id="curve" role="img" aria-labelledby="h-curve"></svg>
+        <svg class="chart" id="curve" role="group" aria-labelledby="h-curve"></svg>
         <div class="tip" id="curve-tip" hidden></div>
       </section>
       <section class="panel" aria-labelledby="h-spread">
@@ -470,10 +470,11 @@ footer{border-top:1px solid var(--line);padding:16px 0 32px;font-size:14px;color
     }
     // the crosshair snaps to the nearest k; one readout, every agent
     var hair = sv("line", { x1: 0, x2: 0, y1: m.t, y2: H - m.b, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" }, svg);
-    var hit = sv("rect", { x: m.l - 10, y: m.t, width: W - m.l - m.r + 20, height: H - m.t - m.b, fill: "transparent", tabindex: 0, "aria-label": "pass^k by k: use left and right arrows" }, svg);
+    var hit = sv("rect", { x: m.l - 10, y: m.t, width: W - m.l - m.r + 20, height: H - m.t - m.b, fill: "transparent", tabindex: 0, role: "slider", "aria-label": "pass^k by k: use left and right arrows", "aria-valuemin": 1, "aria-valuemax": K, "aria-valuenow": 1, "aria-valuetext": "k = 1" }, svg);
     var tip = $("curve-tip"), cur = 1;
     function show(kk, clientX, clientY) {
       cur = kk;
+      hit.setAttribute("aria-valuenow", kk); hit.setAttribute("aria-valuetext", "k = " + kk);
       hair.setAttribute("x1", x(kk)); hair.setAttribute("x2", x(kk)); hair.setAttribute("visibility", "visible");
       tip.innerHTML = "";
       tip.appendChild(el("div", { class: "head", text: "k = " + kk }));
