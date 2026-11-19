@@ -5,6 +5,26 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The evidence page: how repeated runs differ, and choosing among changes
+
+`web/evidence.html` and `web/evidence.py`, built into `/agentdiff/evidence/`
+by `web/build_site.py`, gain two sections and catch up to the log:
+- **How repeated runs differ.** Read from the recorded traces when the
+  page is built:
+  - one real pair of passing runs drawn step by step, with where they part
+    and the steps that line up again;
+  - each run set's rejoin share against 200 seeded shuffles of the
+    remainders;
+  - where the 43 pairs that differ first part.
+  A test checks the figures against `path_split` and `path_parting` on
+  the same traces.
+- **Choosing among several changes.** The seeded simulations of the loop,
+  each with its setting, labelled synthetic: tournaments, how much a
+  winner's first test overstates its gain, whether two kept changes add
+  up, and the family of tests counted.
+- Headline tiles, four more numbers found wrong (2026-11-12 to 11-18),
+  and the research log through 2026-11-18.
+
 ## Every tournament contender counted in the family
 
 `selfevolve.family` took one sign test per generation, the generation's

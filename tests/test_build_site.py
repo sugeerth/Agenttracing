@@ -85,6 +85,35 @@ class BuildSiteTest(unittest.TestCase):
         self.assertIn("synthetic", data["sources"]["coverage"])
         self.assertIn("../evidence/", (self.site / "try/index.html").read_text(encoding="utf-8"))
 
+    def test_the_repeated_run_figures_are_the_engines_on_the_recorded_traces(self):
+        import re
+        sys.path.insert(0, str(ROOT / "web"))
+        from evidence import RUN_SETS, _groups, _pairs
+        from agentdiff.reliability import path_parting_pair, path_split_pair
+        page = (self.site / "evidence/index.html").read_text(encoding="utf-8")
+        data = json.loads(re.search(r'<script id="evidence-data" type="application/json">(.*?)</script>', page, re.S).group(1))
+        shown = {x["set"]: x for x in data["paths"]["sets"]}
+        self.assertEqual(len(shown), len(RUN_SETS))
+        for label, folder in RUN_SETS:
+            pairs = _pairs(_groups(folder))
+            parted = [pp for _, a, b in pairs for pp in [path_parting_pair(a, b)] if pp]
+            row = shown[label]
+            self.assertEqual((row["pairs"], row["identical"]), (len(pairs), len(pairs) - len(parted)))
+            self.assertAlmostEqual(row["rejoin"], sum(x["rejoin"] for x in parted) / len(parted), places=4)
+            self.assertAlmostEqual(row["agree"], sum(path_split_pair(a, b)["agree"] for _, a, b in pairs) / len(pairs), places=4)
+            self.assertEqual(sum(row["at"].values()), len(parted))
+            self.assertEqual(len(row["shuffled"]["values"]), data["paths"]["shuffles"])
+            self.assertLessEqual(row["shuffled"]["low"], row["shuffled"]["high"])
+        ex = data["paths"]["example"]
+        # the drawn pair is a real pair: its alignment is a common subsequence of the two paths
+        for i, j in ex["matched"]:
+            self.assertEqual(ex["a"][i], ex["b"][j])
+        self.assertEqual(ex["a"][:ex["at"] - 1], ex["b"][:ex["at"] - 1])
+        self.assertNotEqual(ex["a"][ex["at"] - 1:ex["at"]], ex["b"][ex["at"] - 1:ex["at"]])
+        for key in ("paths", "choosing"):
+            self.assertIn(key, data["sources"])
+        self.assertIn("simulation", data["sources"]["choosing"])
+
     def test_a_coverage_point_reruns_alone(self):
         """Each simulated point is seeded by its own settings, so one can be checked without the rest."""
         sys.path.insert(0, str(ROOT / "web"))

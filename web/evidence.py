@@ -3,12 +3,16 @@
 Three kinds of figure, each labelled where it is shown:
 
 - computed here, exactly, from the repository: the bound a run of straight passes leaves
-  (``statistics.fail_rate_at_most``), the passes it takes to rule a rate out (``runs_to_rule_out``), and the
-  recorded hard-six evolution counted task by task from its traces;
+  (``statistics.fail_rate_at_most``), the passes it takes to rule a rate out (``runs_to_rule_out``), the
+  recorded hard-six evolution counted task by task from its traces, and how repeated passing runs of the same
+  task part and come back (``reliability.path_split`` and ``path_parting`` over the recorded run sets, read
+  against their remainders shuffled with a fixed seed), with one recorded pair drawn step by step;
 - simulated here, seeded per point so any one point can be rerun alone: how often the rerun-flip range holds
   (synthetic, and said so);
 - quoted from the project's own records, with where each comes from: the table of real evolutions in
-  docs/SELF_EVOLVE.md, the audits in docs/RESEARCH_LOG.md, and the grader-strength run of 2026-11-05.
+  docs/SELF_EVOLVE.md, the audits in docs/RESEARCH_LOG.md, the grader-strength run of 2026-11-05, and the
+  seeded simulations of the self-evolve loop in docs/CHANGELOG.md (tournaments, first-test luck, stacking, the
+  family of tests), each with its setting and labelled synthetic.
 
 No model names appear: the agent is "the agent", and the build refuses a file that names a model.
 Standard library only.
@@ -27,6 +31,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agentdiff.statistics import central_range, fail_rate_at_most, poisson_binomial, runs_to_rule_out  # noqa: E402
+from agentdiff.reliability import action_sequence, path_parting_pair, path_split_pair  # noqa: E402
+from agentdiff.similarity import lcs_length  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
 
 HARD_SIX = ROOT / "demo" / "selfevolve" / "examples" / "haiku-hard-confirms"
 SELF_EVOLVE_MD = "docs/SELF_EVOLVE.md, the table of real runs"
@@ -77,6 +84,14 @@ CHECKS = [
      round(1752 / 1852, 4), round(1350 / 1852, 4), "higher",
      "One simple rule scored 1,350 against the engine's 1,344; two later fixes took the engine to 1,752. The target is that rule.",
      "synthetic"),
+    ("2026-11-12", "A divergence 'systematic' between an agent and itself", "False alarms on identical arms", 0.23, 0.045,
+     0.05, "lower", "An exact permutation test over the arm labels decides whether a pattern is beyond chance.", "synthetic"),
+    ("2026-11-13", "GenAI registry operations read as steps", "Operations read, of 17", round(8 / 17, 4), 1.0, 1.0,
+     "higher", "Retrieval, plan, invoke_runner and the rest became steps instead of being dropped as unknown.", "recorded"),
+    ("2026-11-15", "Sequential runs read as overlapping in time", "Seeded sequential runs misread", round(488 / 2000, 4),
+     0.0, 0.0, "lower", "Overlap now comes from the unrounded times, outside the record's own rounding.", "synthetic"),
+    ("2026-11-18", "The family of tests behind a tournament's odds", "Tests counted, of tests made (best of 3)",
+     round(3 / 9, 4), 1.0, 1.0, "higher", "Every contender with a sign test is now in Holm's family.", "synthetic"),
 ]
 
 #: run 23: each recent commit's held-out tests against small changes to its own lines (recorded on this repository)
@@ -89,6 +104,34 @@ GRADER_STRENGTH = [
 
 #: one row per daily research-and-implement run (docs/RESEARCH_LOG.md)
 RESEARCH_LOG = [
+    ("2026-11-18 (2)", "Every tournament contender counted in the family of tests", "Statistics",
+     "3 tests counted where 9 and 11.6 were made; the family-wise rate held either way, the stated count did not."),
+    ("2026-11-18", "When repeated runs part, and whether they come back", "Repeatability",
+     "Real runs part at a median step 2, then 52–65% of what follows lines up again; no shuffle of 200 came as high."),
+    ("2026-11-17", "A from-git run asking GitHub's CLI, or uv, for the fix", "Grading",
+     "0 of 1,165 recorded traces flagged before or after; 26 of 26 labelled reaching forms caught, 0 of 18 local ones."),
+    ("2026-11-16", "How much luck was in a kept change's first test", "Evolution",
+     "The first test overstated the gain about 2.5×; fresh re-runs came within 0.005 to 0.033 of the true gain."),
+    ("2026-11-15 (2)", "Tournaments: the best of N changes, made to replicate", "Evolution",
+     "At the same spend, best of 5 kept 84% fewer changes that do nothing than one change a generation."),
+    ("2026-11-15", "Whether two kept changes add up", "Evolution",
+     "At 3 runs a task, changes that add read so 22 of 24 times, and overlapping ones 80 of 81."),
+    ("2026-11-14", "Whether a kept change stopped what it was chosen to stop", "Evolution",
+     "A change with no effect was kept 31–40% of the time, and 52–65% of those read 'not fewer'."),
+    ("2026-11-13", "GenAI spans, read as the conventions write them", "Tracing",
+     "Registry operations read as agent steps: 8 of 17 before, 17 of 17 after; 1,165 own traces unchanged."),
+    ("2026-11-12", "A divergence pattern against the arm labels dealt at random", "Statistics",
+     "Between an agent and itself, 'systematic' fired on up to 23% of tasks; the permutation test on at most 4.5%."),
+    ("2026-11-11", "Read and measured, nothing built", "None",
+     "Re-run checks and graded credit both read nothing on the 94 real runs here; logged to revisit."),
+    ("2026-11-10", "Where repeated runs' paths part: other actions or another order", "Repeatability",
+     "Almost all the disagreement is other actions; shuffling order would add 0.20–0.29, and no shuffle came as low."),
+    ("2026-11-09", "What a tested change costs a run, paired by task", "Evolution",
+     "Reading the guide cost ×1.69 tokens a run (p 0.031); the card's pooled medians had been off by up to 1.4×."),
+    ("2026-11-08", "What a recovery cost", "Failure attribution",
+     "264 of 328 errors recovered, at a median of 1 tool step, on 212 recorded real runs."),
+    ("2026-11-07", "What more runs buy against new tasks", "Repeatability",
+     "On the A/A suite more runs buy 0% of what new tasks would; on harness v0, 92%."),
     ("2026-11-06", "Whether a run reached outside its workspace for the fix", "Grading",
      "0 of 212 recorded real runs did; a plain text search flagged 3, all wrongly."),
     ("2026-11-05", "How much a task's grader can tell apart", "Grading",
@@ -141,6 +184,142 @@ RESEARCH_LOG = [
     ("2026-10-16", "Stop a changed arm that cannot be kept", "Evolution",
      "Skips 17 to 35% of a harmful change's runs; no verdict changed in 2,700 draws."),
 ]
+
+#: the recorded real run sets that repeated runs are read from, each arm on its own (agent, task) groups
+RUN_SETS = (
+    ("The same agent under two names", "demo/vendors/aa-suite/traces"),
+    ("The hard six tasks, harness v0", "demo/selfevolve/examples/haiku-hard-confirms/g0-h0/traces"),
+    ("The hard six tasks, harness v1", "demo/selfevolve/examples/haiku-hard-confirms/g0-h1/traces"),
+    ("Six tasks, graders held out", "demo/selfevolve/examples/haiku-on-six-tasks/g0-h0/traces"),
+)
+#: the shuffles the rejoin share is read against, and their seed
+SHUFFLES, SHUFFLE_SEED = 200, 36
+#: the longest path drawn as the worked example
+EXAMPLE_MAX_STEPS = 22
+
+#: synthetic, seeded simulations of the self-evolve loop, quoted from docs/CHANGELOG.md (each says its setting)
+TOURNAMENT = {
+    "setting": "100 evolutions a setting; 8 tasks at a 30% pass rate; 6 candidate instructions, 2 of which help",
+    "rows": [
+        {"setting": "One change a generation, 3 generations", "breadth": 1, "generations": 3, "final": 0.46,
+         "helpers": 0.65, "placebos": 0.45, "runs": 96},
+        {"setting": "One change a generation, 7 generations", "breadth": 1, "generations": 7, "final": 0.63,
+         "helpers": 1.33, "placebos": 0.83, "runs": 218},
+        {"setting": "Best of 3 a generation, 3 generations", "breadth": 3, "generations": 3, "final": 0.58,
+         "helpers": 1.10, "placebos": 0.30, "runs": 237},
+        {"setting": "Best of 5 a generation, 3 generations", "breadth": 5, "generations": 3, "final": 0.58,
+         "helpers": 1.12, "placebos": 0.13, "runs": 253},
+    ],
+}
+SELECTION = {
+    "setting": "150 evolutions a setting, the true gain known, every re-run counted",
+    "rows": [{"breadth": 1, "overstated_by": 0.15, "fresh_within": 0.033},
+             {"breadth": 3, "overstated_by": 0.20, "fresh_within": 0.005},
+             {"breadth": 5, "overstated_by": 0.20, "fresh_within": 0.005}],
+    "ratio": 2.5,
+}
+STACKING = {
+    "setting": "300 evolutions a setting, best of 2",
+    "rows": [{"runs_a_task": 3, "adds_right": [22, 24], "overlaps_right": [80, 81]},
+             {"runs_a_task": 2, "adds_right": [14, 24], "overlaps_right": [55, 59]}],
+}
+FAMILY = {
+    "setting": "200 evolutions a setting; 12 tasks, 3 runs a task, 3 generations, every change a placebo",
+    "rows": [{"breadth": 1, "counted": 3.0, "made": 3.0, "before": 0.045, "after": 0.045},
+             {"breadth": 3, "counted": 3.0, "made": 9.0, "before": 0.015, "after": 0.0},
+             {"breadth": 5, "counted": 3.0, "made": 11.6, "before": 0.030, "after": 0.005}],
+}
+
+
+def _groups(folder: str) -> list:
+    """The passing runs of each (agent, task) in a recorded trace folder, as action paths, in file order."""
+    by: dict = {}
+    for path in sorted(glob.glob(str(ROOT / folder / "*.json"))):
+        t = Trajectory.from_json(path)
+        if t.outcome.success:
+            by.setdefault((t.agent.name, t.task.id), []).append(action_sequence(t))
+    return [(key, seqs) for key, seqs in sorted(by.items()) if len(seqs) > 1]
+
+
+def _pairs(groups: list) -> list:
+    return [(key, seqs[i], seqs[j]) for key, seqs in groups for i in range(len(seqs)) for j in range(i + 1, len(seqs))]
+
+
+def _shuffled_rejoin(parted: list, rng: random.Random) -> float:
+    """The mean rejoin share when each run's steps after the parting are put in a random order."""
+    out = []
+    for _, a, b, pp in parted:
+        same = pp["at"] - 1
+        ta, tb = list(a[same:]), list(b[same:])
+        rng.shuffle(ta)
+        rng.shuffle(tb)
+        out.append(lcs_length(ta, tb) / (max(len(a), len(b)) - same))
+    return sum(out) / len(out)
+
+
+def _align(a: list, b: list) -> list:
+    """One longest common subsequence of two paths, as (index in a, index in b) pairs."""
+    n, m = len(a), len(b)
+    t = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            t[i][j] = t[i + 1][j + 1] + 1 if a[i] == b[j] else max(t[i + 1][j], t[i][j + 1])
+    i = j = 0
+    out = []
+    while i < n and j < m:
+        if a[i] == b[j]:
+            out.append([i, j])
+            i, j = i + 1, j + 1
+        elif t[i + 1][j] >= t[i][j + 1]:
+            i += 1
+        else:
+            j += 1
+    return out
+
+
+def _step(action: str) -> dict:
+    kind, _, name = action.partition(":")
+    return {"kind": kind, "name": name}
+
+
+def paths() -> dict:
+    """Recorded: where repeated passing runs of the same task part, and whether they come back, per run set; read
+    against the same remainders shuffled (seeded); and one pair drawn step by step."""
+    rng = random.Random(SHUFFLE_SEED)
+    sets, example = [], None
+    for label, folder in RUN_SETS:
+        pairs = _pairs(_groups(folder))
+        parted = [(k, a, b, pp) for k, a, b in pairs for pp in [path_parting_pair(a, b)] if pp is not None]
+        if not parted:
+            continue
+        splits = [path_split_pair(a, b) for _, a, b in pairs]
+        real = sum(pp["rejoin"] for *_, pp in parted) / len(parted)
+        null = sorted(_shuffled_rejoin(parted, rng) for _ in range(SHUFFLES))
+        steps = [pp["at"] for *_, pp in parted]
+        sets.append({
+            "set": label, "pairs": len(pairs), "identical": len(pairs) - len(parted),
+            "agree": round(sum(x["agree"] for x in splits) / len(splits), 4),
+            "actions": round(sum(x["actions"] for x in splits) / len(splits), 4),
+            "order": round(sum(x["order"] for x in splits) / len(splits), 4),
+            "at_median": sorted(steps)[len(steps) // 2] if len(steps) % 2 else
+            (sorted(steps)[len(steps) // 2 - 1] + sorted(steps)[len(steps) // 2]) / 2,
+            "at": {str(k): steps.count(k) for k in sorted(set(steps))},
+            "before": round(sum(pp["before"] for *_, pp in parted) / len(parted), 4),
+            "rejoin": round(real, 4),
+            "shuffled": {"low": round(null[int(0.025 * SHUFFLES)], 4), "high": round(null[int(0.975 * SHUFFLES) - 1], 4),
+                         "median": round(null[SHUFFLES // 2], 4), "as_high": sum(x >= real for x in null),
+                         "values": [round(x, 4) for x in null]},
+        })
+        if folder.endswith("g0-h0/traces") and example is None:
+            # the pair nearest the set's own median parting step and mean rejoin, short enough to draw
+            fit = [x for x in parted if max(len(x[1]), len(x[2])) <= EXAMPLE_MAX_STEPS]
+            med = sets[-1]["at_median"]
+            k, a, b, pp = min(fit, key=lambda x: (abs(x[3]["at"] - med), abs(x[3]["rejoin"] - real), x[0][1]))
+            example = {"set": label, "task": k[1], "at": pp["at"], "before": round(pp["before"], 4),
+                       "rejoin": round(pp["rejoin"], 4), "a": [_step(x) for x in a], "b": [_step(x) for x in b],
+                       "matched": _align(a, b)}
+    return {"sets": sets, "example": example, "shuffles": SHUFFLES, "seed": SHUFFLE_SEED}
+
 
 #: the task-rate mixes of the coverage simulation (synthetic)
 MIXES = ("Mostly settled tasks", "Rates spread out", "All fairly reliable")
@@ -197,7 +376,10 @@ def evidence(coverage_draws: int = COVERAGE_DRAWS) -> dict:
         "sources": {"evolutions": SELF_EVOLVE_MD, "checks": LOG_MD, "research_log": LOG_MD,
                     "grader_strength": "the grader-strength run on this repository's own history (2026-11-05)",
                     "hard_six": "demo/selfevolve/examples, the hard-six evolution's traces",
-                    "bounds": "agentdiff.statistics, exact", "coverage": "synthetic, seeded simulation in web/evidence.py"},
+                    "bounds": "agentdiff.statistics, exact", "coverage": "synthetic, seeded simulation in web/evidence.py",
+                    "paths": "the recorded traces under demo/, read when the page is built (reliability.path_split, "
+                             "path_parting); the shuffles seeded in web/evidence.py",
+                    "choosing": "docs/CHANGELOG.md: seeded simulations of the self-evolve loop, each with its setting"},
         "totals": {"evolutions": len(evolutions), "runs": sum(e["runs"] for e in evolutions),
                    "cost_usd": round(sum(logged), 2), "cost_logged": len(logged),
                    "tried": sum(e["tried"] for e in evolutions), "kept": sum(e["kept"] for e in evolutions),
@@ -216,6 +398,8 @@ def evidence(coverage_draws: int = COVERAGE_DRAWS) -> dict:
                      "points": [{"mix": name, "runs": n, "coverage": coverage_point(i, n, coverage_draws)}
                                 for i, name in enumerate(MIXES) for n in COVERAGE_RUNS]},
         "research_log": [{"date": d, "added": a, "area": ar, "result": r} for d, a, ar, r in RESEARCH_LOG],
+        "paths": paths(),
+        "choosing": {"tournament": TOURNAMENT, "selection": SELECTION, "stacking": STACKING, "family": FAMILY},
     }
 
 
