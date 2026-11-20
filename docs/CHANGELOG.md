@@ -5,6 +5,26 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Which way the diagnoser's wrong steps fall
+
+`bench.miss_direction`, carried as `direction` in the benchmark's
+`step_localization` and printed on the scorecard. Of the predictions
+that name a step and miss it, it gives:
+- how many fall before the decisive step and how many after;
+- each offset's count;
+- the farthest miss;
+- the split by cause family.
+
+The offset is measured to the nearest acceptable step. It is not a floor
+and changes no score.
+
+Measured on the generated corpus, 2,200 pairs (synthetic):
+- **Annotated:** 52 wrong steps, all one step before the decisive step
+  (late_decision 25, misread_reason 27).
+- **Stripped:** 100 wrong steps. 61 fall before (56 by one, 5 by two),
+  and 39 after, all by two, in cascade (17) and wrong_fact (22).
+- Handcrafted corpus: 16 of 16 exact, so no wrong steps.
+
 ## A run cannot find a git repository above its own directory
 
 `harness.vendors.vendor_env(ceiling=...)`: every agent runs with

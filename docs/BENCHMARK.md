@@ -105,6 +105,33 @@ contested failures start where the runs first part. The fallback is
 labelled, never presented as a cause, and stays hypothesized until a
 replay verifies it.
 
+## Which way the misses fall (2026-11-20)
+
+An audit of failure localizers (TrajAudit) found that most wrong guesses
+come after the true step, 14.5 steps late on average: a localizer that
+misses late names a symptom where the cause was. The scorecard said only
+"exact" and "within ±1", so it could not tell. `bench.miss_direction`,
+carried as `direction` in `step_localization` and printed on the
+scorecard, gives:
+- how many wrong steps fall before the decisive step and how many after;
+- how far off they are;
+- which cause families they come from.
+
+It counts only predictions that name a step and miss it, measured to the
+nearest acceptable step. It is not a floor and changes no score.
+
+| corpus | condition | exact | wrong steps | before | after | farthest | from |
+|---|---|---|---|---|---|---|---|
+| generated, 2,200 pairs | annotated | 1800/1852 | 52 | 52 (all by 1) | 0 | 1 | late_decision 25, misread_reason 27 |
+| generated, 2,200 pairs | stripped | 1752/1852 | 100 | 61 (56 by 1, 5 by 2) | 39 (all by 2) | 2 | the same 52; cascade 5 before, 17 after; wrong_fact 4 before, 22 after |
+
+AgentDiff's misses are near and mostly early, the opposite of the
+audit's pattern, but the late ones are not gone. All 39 are 2 steps
+after the truth, in the stripped condition, in `cascade` and
+`wrong_fact`: the shape the 2026-10-24 change below moved back for 237
+cases. They are what is left of it. These are measured on the generator,
+not on real failures.
+
 ## Same tool, other arguments (2026-10-24)
 
 The stripped corpus still had 237 cases where the engine named a step 1

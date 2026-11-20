@@ -4,6 +4,52 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-20
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- Failure localization: *TrajAudit* (arXiv 2605.26563; logged as a title
+  on 2026-10-23). Localization accuracy drops for early errors, and 81%
+  of mislocalized predictions are later than the annotated step, by 14.5
+  steps on average. Also AgentRx (the first unrecoverable failure, by
+  constraint checks), CodeTracer (arXiv 2604.11641, the earliest
+  failure-critical stage of a code agent's run), DRIFT/TELBench (arXiv
+  2606.02060; first-error accuracy up to +30 points), FALAT
+  (dependency-guided search) and *Locating Hidden Failures* (arXiv
+  2609.17930; a long run derails at one step).
+- Control variates for evaluation: paired reasoning chains as control
+  variates for accuracy (arXiv 2602.03061), synthetic feedback with
+  control variates for win rates (arXiv 2502.10563), and AV-AIVAT again.
+- Harness evolution: *One Recipe, Many Harnesses* (arXiv 2608.10178,
+  NeurIPS 2026; a shared core transfers across languages and models),
+  EvoHarnessBench, a multi-task self-evolving harness (arXiv
+  2609.38372), and a survey of self-evolving coding agents (arXiv
+  2608.03392).
+
+**Taken: which way the diagnoser's wrong steps fall.** TrajAudit's
+finding is a direction: localizers miss late, naming a symptom. The
+benchmark's scorecard said only "exact" and "within ±1", so it could not
+say which way AgentDiff misses.
+- Built: `bench.miss_direction`, in `step_localization` and on the
+  scorecard.
+- Measured (generated, 2,200 pairs): annotated, 52 wrong steps, all one
+  step early. Stripped, 100: 61 early, and 39 late by two, all in cascade
+  and wrong_fact, the remnant of the shape fixed on 2026-10-24.
+
+**Not taken, and why:**
+- **Control variates from a judge's pairwise signal** (2602.03061). The
+  control variate is a model's judgement, and no model may decide or
+  alter a number here.
+- **A cheaper covariate for the paired sign test.** The verdict is an
+  exact test over tasks; a regression-adjusted estimate would sit beside
+  it with assumptions the exact test does not make. Revisit if a
+  covariate the trace measures exactly (not a model's) predicts outcome.
+- **Fixing the 39 late misses.** The 2026-10-24 conditions were each
+  added because a looser one broke other cases; a new rule needs its own
+  run and its own measurement of what it breaks.
+
 ## 2026-11-19
 
 **How it was read.** Through search-engine extracts; arxiv.org could not

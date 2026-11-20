@@ -61,6 +61,32 @@ FLOORS = {
 }
 
 
+def miss_direction(results: list[dict]) -> dict:
+    """Which way the diagnoser's wrong steps fall: before the true decisive step or after it, and by how much.
+
+    Only scenarios with a decisive step to find, and only predictions that name a step and miss it, count; the
+    offset is to the nearest acceptable step. A localizer that misses late names a symptom where the cause was;
+    one that misses early names a step before the cause took hold. Reported beside the exact score; it is not a
+    floor and changes no score."""
+    offsets, by_cause = {}, {}
+    for r in results:
+        truth, got = r.get("decisive_truth") or [], r.get("decisive_predicted")
+        if not truth or got is None or got in truth:
+            continue
+        off = got - min(truth, key=lambda t: (abs(t - got), t))
+        offsets[off] = offsets.get(off, 0) + 1
+        bucket = by_cause.setdefault(r["cause"], {"early": 0, "late": 0})
+        bucket["early" if off < 0 else "late"] += 1
+    early = sum(n for o, n in offsets.items() if o < 0)
+    late = sum(n for o, n in offsets.items() if o > 0)
+    far = max((abs(o) for o in offsets), default=0)
+    says = ("every step named was the decisive one" if not offsets else
+            f"{early + late} wrong step(s): {early} before the decisive step, {late} after it; the farthest {far} "
+            f"step(s) off")
+    return {"early": early, "late": late, "offsets": {str(o): offsets[o] for o in sorted(offsets)},
+            "farthest": far, "by_cause": dict(sorted(by_cause.items())), "says": says}
+
+
 def floor_violations(result: dict) -> list[str]:
     """Which floors the measured result breaks (empty = all clear)."""
     measured = {
@@ -92,7 +118,8 @@ def format_scorecard(result: dict) -> str:
         f"  cause kind      {overall['correct']}/{overall['total']}"
         f"  ({overall['accuracy']:.0%})",
         f"  decisive step   {step['exact']}/{step['total']} exact, "
-        f"{step['within_1']}/{step['total']} within ±1",
+        f"{step['within_1']}/{step['total']} within ±1"
+        + (f"; {step['direction']['says']}" if step.get("direction") else ""),
         f"  abstention      {abstention['correct']}/{abstention['total']}"
         + "  (causes with no agent step to correct)",
         f"  chain recovery  recall {chain['mean_recall']}, precision "
@@ -560,6 +587,7 @@ def run_benchmark(traces_dir: Union[str, Path]) -> dict:
                                if step_truth else None),
             "accuracy_within_1": (round(within_1 / len(step_truth), 4)
                                   if step_truth else None),
+            "direction": miss_direction(step_truth),
         },
         "abstention": {
             "correct": abstain_ok,
