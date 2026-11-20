@@ -20,6 +20,7 @@
   --rule-2: #cfcfc8;
   --a: #2f6f9f;
   --b: #b5651d;
+  --b-ink: #9e5714;
   --good: #3f7d3f;
   --bad: #b03030;
   --warn: #b5891d;
@@ -43,6 +44,7 @@
     --rule-2: #3d414a;
     --a: #6fb0e0;
     --b: #e2a45f;
+    --b-ink: #e2a45f;
     --good: #6fbf6f;
     --bad: #e07070;
     --warn: #d8b45a;
@@ -61,6 +63,7 @@
   --rule-2: #3d414a;
   --a: #6fb0e0;
   --b: #e2a45f;
+  --b-ink: #e2a45f;
   --good: #6fbf6f;
   --bad: #e07070;
   --warn: #d8b45a;
@@ -694,7 +697,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
 </style>
 </head>
 <body>
-<div class="topbar">
+<header class="topbar">
   <div class="brand"><strong>AgentDiff</strong><span>blocks</span></div>
   <select class="picker" id="task-picker" aria-label="Task"></select>
   <div class="spacer"></div>
@@ -717,7 +720,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
   <button class="btn" id="btn-drawer">Blocks</button>
   <button class="btn ghost" id="btn-help" title="Keyboard help (?)" aria-label="Keyboard help">?</button>
   <button class="btn" id="btn-you">You</button>
-</div>
+</header>
 
 <!-- The lane. One block, the whole content width: the trace is the point of
      the page, not one card in one of four columns. Populated by the core
@@ -729,6 +732,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
 <!-- The task strip: every task in the batch as one chip — who solved it,
      where the decisive step sits — so the whole batch is one glance and
      switching tasks is one click. -->
+<main id="content">
 <nav class="task-strip" id="task-strip" aria-label="Tasks" hidden></nav>
 <h1 class="page-title" id="page-title" hidden></h1>
 <div class="lead-lane" id="lead-lane" hidden></div>
@@ -746,6 +750,7 @@ body[data-view="trace"] .stack-label .pip { display: none; }
 <nav class="reading" id="reading" aria-label="Reading order"></nav>
 
 <div class="stacks" id="stacks"></div>
+</main>
 
 <div class="scrim" id="scrim"></div>
 

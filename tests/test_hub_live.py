@@ -320,6 +320,25 @@ class StreamerTest(unittest.TestCase):
             self.assertEqual(s.tick(), 1)
 
 
+    def test_a_second_streamer_of_the_same_directory_posts_only_what_is_new(self):
+        """A settled arm runs round by round, each with its own streamer: sharing what the directory already
+        sent keeps round two from posting round one's runs again."""
+        from agentdiff.harness.hub_server import TraceStreamer
+        with tempfile.TemporaryDirectory() as tmp:
+            posts = []
+
+            def poster(url, token, text, **kw):
+                posts.append(1)
+                return 201, {"id": "x", "kept": "this", "hops": 1}
+            run = {"steps": [{"type": "tool_call", "name": "x"}], "outcome": {"success": True}}
+            (Path(tmp) / "t__a__r1.json").write_text(json.dumps(run))
+            seen: dict = {}
+            TraceStreamer(tmp, "http://hub", "t", poster=poster, seen=seen).tick()
+            (Path(tmp) / "t__a__r2.json").write_text(json.dumps(run))
+            TraceStreamer(tmp, "http://hub", "t", poster=poster, seen=seen).tick()
+            self.assertEqual(len(posts), 2, "r1 once, r2 once")
+
+
 class ServerTest(unittest.TestCase):
     def test_the_live_page_may_run_the_hub_script_and_the_stream_flows(self):
         import urllib.request

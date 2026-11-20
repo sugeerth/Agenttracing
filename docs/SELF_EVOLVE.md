@@ -103,6 +103,138 @@ commit itself (so it can be done, and the grader agrees with the change
 the project made). Every commit looked at is reported in
 `tasks-report.json`, taken or not, with why.
 
+A grader must also agree with itself. The tests run 3 times on the
+parent and 3 times on the commit (`--grader-checks N`), each run on a
+fresh copy. A task is kept only if they fail on the parent every time
+and pass on the commit every time. One that does not is a flaky grader:
+it would pass or fail the agent's runs by chance, and the evolution would
+learn from noise. It is left out, with what it did ("on the commit its
+tests passed 2 time(s), then failed"). It costs test runs only, never
+agent runs.
+- **Arithmetic:** a grader that fails 3 runs in 10 on the commit gets
+  through one check 70% of the time, three checks 34% and five 17%.
+- **Measured on python-slugify:** the same 6 tasks are kept at 1 check
+  and at 5, since none of its graders is flaky. Building them took 14 s
+  at 1 check and 46 s at 5.
+- **A grader the work cannot talk round.** The held-out tests are
+  copied in over the agent's work, but its work can still change how
+  they run. A `conftest.py`, a test-runner setting, or code that patches
+  the test framework can skip, deselect or swap them out, and the
+  command then exits 0. So when a task is made, the tests that pass on
+  the commit are written down by name (pytest `-rA`, unittest `-v`). A
+  run passes only if every one of them passes again, whatever the exit
+  code says, and the check names the ones that did not. Changing
+  configuration is not refused, only judged by the tests it lets run.
+  - **Recorded:** 4 of the 176 recorded python-slugify runs edited
+    `tox.ini` or `pyproject.toml`, to register a test file of their own.
+    Re-graded with the held grader, all 176 kept the verdict they were
+    recorded with.
+  - **Tested:** work whose code makes every test skip itself exits 0
+    unheld, and fails held, in a test.
+  - **Limit:** a `--test-cmd` whose output names no passing tests is not
+    held, and the task says so (`held_to` 0).
+- **How much a grader can tell apart** (`--grader-mutants N`, off by
+  default). Each kept task's commit is changed in small ways, one at a
+  time, only on the lines the commit itself changed:
+  - a comparison flipped (`<` for `<=`, `==` for `!=`, `in` for `not in`);
+  - `and` for `or`, or `+` for `-`;
+  - a constant one up, or `True` for `False`;
+  - a condition negated, or a return made to return `None`.
+
+  Each changed version is graded by the task's own held-out check. The
+  task then carries `grader`: how many changes the tests caught, how many
+  they missed, and where. A missed change is either a gap in the tests or
+  a change that does nothing, and no check here can tell the two apart.
+  A file is first rewritten with no change, and the check must pass on
+  it. Up to N changes a task, an evenly spaced and fixed selection. It
+  costs a test run per change, never an agent run, and keeps or drops no
+  task.
+  - **Measured on AgentDiff's own history** (6 recent commits, 12
+    changes each at most): the held-out tests caught 42 of 60. Per
+    commit: 11/12, 11/12, 10/12, 4/7, 3/5 and 3/12.
+  - The 3/12 commit was this project's own per-run resource ratio. Six
+    of its misses were real gaps: its command-line line was never run,
+    output tokens were never set, and the interval was only ever tested
+    with zero spread. With tests added for them, the same 12 changes
+    went from 3 caught to 10. The 2 still missed (a rounding precision,
+    and the enumeration limit read from the module) change nothing that
+    matters.
+- **Whether a change stopped what it was chosen to stop.** A change is
+  chosen because a rule fired on this generation's failing runs. A record
+  whose change came from a rule carries `target` (`selfevolve.target_after`):
+  that rule applied to every run of both arms, task by task. It reads
+  stopped, fewer, not fewer, or never fired. The card says, for example,
+  "its target stopped: 6/6 runs before, 0/6 after". It decides nothing.
+  - **Simulated** (synthetic, seeded; 300 evolutions a setting):
+    - A change with no effect was still kept 31–40% of the time.
+    - Among those kept changes, 52–65% read "not fewer". The rest read
+      "fewer", because keeping a change favours runs that passed, and
+      these passed more often when they checked.
+    - A change that removes its target was never read "not fewer".
+    - So "not fewer" on a kept change points to luck. "Fewer" alone
+      settles nothing.
+  - **Recorded:** the stand-in's change (scripted) stopped its target, 6
+    of 6 runs to none. Both real evolutions chose their changes by
+    exploration, so no rule names a target for them.
+- **What a change costs a run.** Each tested change's record carries
+  `cost`: tokens, seconds and steps per run, paired by task with the
+  exact sign-flip test over the tasks (`selfevolve.change_cost`). The
+  card says "tokens +69% a run, shown by 6 tasks (p 0.031)" instead of
+  a pooled median. Cost decides nothing; the passes still do.
+  - **Recorded, every tested change on disk** (6 tasks each):
+    - Reading the project's guide (kept): tokens ×1.69, shown (p 0.031).
+    - Edge cases on top of it (kept): ×2.42, shown (p 0.031).
+    - The hard six's edge cases (kept): ×1.33, not shown (p 0.16).
+    - Edge cases without the guide (reverted): ×3.43, shown.
+    - Review the diff (reverted): ×1.42, not shown.
+    - Spec first (reverted): ×1.14, not shown.
+  - The pooled medians the card showed before differed from these by up
+    to 1.4×: 4.84 against 3.43, 1.56 against 1.33.
+- **Whether a run reached for the fix.** Taking `.git` out of the
+  workspace stops an agent reading the answer from history. It does not
+  stop an agent with a network or an installed copy of the project from
+  finding the merged change. After a `--from-git` run, every trace is
+  read for steps that reached outside the workspace for the project's own
+  code (`gittasks.retrieval_check`). The project's names come from the
+  repository and its top-level packages. Flagged:
+  - git talking to a remote;
+  - the GitHub CLI asking GitHub about a repository (`gh pr`, `gh api`,
+    `gh search` and the like; `gh auth` and `gh --version` stay local);
+  - a package index asked for the project (pip `install`, `download` or
+    `show` naming it, and uv's `uv pip install` or `uv add`);
+  - a URL or a web search that names it;
+  - a path into an installed copy (`site-packages/<package>`);
+  - git finding a repository at all: the workspace has none, so a git
+    command that does not fail for want of one read another repository
+    (a run that made its own with `git init` is left alone).
+
+  Each shell command is split into its parts and read token by token, so
+  a line that installs a linter and then lints `slugify/slugify.py` is
+  not taken for a fetch. It is in `self-evolve.json` as `retrieval`, and
+  it changes no verdict.
+  - **Recorded:** 0 of 212 distinct real python-slugify runs reached
+    outside (2,542 of their 2,549 tool inputs parsed). A plain text
+    search over the same runs flagged 3, all wrong: a linter install, a
+    coverage install and a `pip show` of packaging tools.
+- **The workspace holds no history.** It is the parent's tree from
+  `git archive`, with no `.git`, so the agent cannot read the fix from
+  the repository's own log. Git also looks for a repository by walking
+  up from where it runs, so a run directory inside a checkout (a
+  `TMPDIR` set inside one, say) would hand the agent that checkout's
+  history instead. Every agent runs with `GIT_CEILING_DIRECTORIES` set
+  to its own run directory, so git stops there: a workspace's own `.git`
+  is still found, nothing above it is.
+  - **Constructed, run for real** through the harness with the scripted
+    stand-in: a repository whose history holds the fix, the run
+    directory inside it, and 8 git commands an agent might run from its
+    workspace (`git status`, `git log -p -1`, `git show HEAD`, `git log
+    --all`, `git reflog` and others). Without the ceiling, 8 of 8 found
+    the repository and 6 printed the fix; with it, 0 of 8. The check
+    above flagged all 8 runs without the ceiling and none with it.
+  - **Recorded:** 11 real runs ran `git status` in their workspace, and
+    all 11 got "not a git repository". None of the 1,165 recorded
+    traces is flagged.
+
 - Merges, commits with more than 12 files, and messages under 20
   characters are not used.
 - Tests run with pytest when it is installed for `--python`, else
@@ -128,6 +260,216 @@ Evolve has the same as a third way in, "On your repository's history".
   still count as a win. A change that does not hold is reverted, with
   the counts of both tests. `--no-confirm` keeps a change on its first
   test, as before.
+- **How much luck was in the first test.** A change that is re-run won
+  its first test, and a winner's first gain carries the luck that made it
+  a winner. Best of N carries more. The fresh runs had no hand in
+  choosing it. So each re-run carries `selection`
+  (`selfevolve.selection`), the gain in pass rate on the tasks the change
+  moved:
+  - `first`: from the first test;
+  - `fresh`: from the re-run;
+  - `shrink`: fresh over first.
+
+  The card says "fresh runs +17 points where the first test showed
+  +50". Tournament rows carry it for every contender re-run, held or
+  not. It decides nothing.
+  - **Synthetic, seeded** (150 evolutions a setting; the tournament
+    study's world, where the true gain is known):
+
+    | Breadth | Re-runs | First test | Fresh runs | True |
+    | --- | --- | --- | --- | --- |
+    | 1 | 109 | +0.248 | +0.128 | +0.095 |
+    | 3 | 505 | +0.349 | +0.148 | +0.142 |
+    | 5 | 543 | +0.339 | +0.141 | +0.136 |
+
+    The first test overstated a kept change's gain about 2.5×. The fresh
+    runs were within 0.005 of the true gain at breadth 3 and 5, and
+    within 0.033 at breadth 1.
+  - The count must take every change re-run, not only those still kept.
+    Keeping a change on its fresh runs selects on them too. Counted that
+    way, the fresh runs also overstate.
+  - **Recorded:** the one real re-run on disk (the hard-task example's
+    edge-case change, on `ranges`) held in full: +33 points on its first
+    test and on its fresh runs.
+- **A tournament each generation.** `--breadth N` tests the N best
+  candidate changes a generation instead of one: the evals' and rules'
+  next candidates, then the next exploration instructions. Each change
+  runs against the same runs of the current harness.
+  - **The best must replicate.** Picking the best of N inflates luck,
+    so the best kept change runs again on the tasks it moved, both arms.
+    It stays only if the fresh runs alone show it winning. If it fails,
+    the next best kept change is tried the same way.
+  - **Runners-up come back.** A change that also won but was not chosen
+    is left untried, so the next generation tests it again on top of the
+    winner. That shows whether two changes add up.
+  - **Whether two changes add up.** A runner-up won alone, against the
+    same runs as the winner. Tested later on top of the winner, its test
+    carries `stacked` (`selfevolve.stacked`), and the card says "on top
+    of X: adds" or "overlaps".
+    - It compares the gain on top of the winner with the gain the change
+      showed alone. It "adds" when it keeps at least half
+      (`STACK_KEEPS`), and "overlaps" when the winner had already fixed
+      most of what it fixed.
+    - It reads the gains, not the keep verdict. That verdict also turns
+      on its rule that no task may break, which is noisy at a few runs a
+      task.
+    - **Synthetic, seeded** (300 evolutions a setting; 8 tasks, 2 helpers
+      that fix either disjoint or the same 4 tasks, 2 placebos, breadth
+      2):
+      - **3 runs a task:** disjoint helpers read "adds" 22 times in 24,
+        and overlapping ones "overlaps" 80 in 81.
+      - **2 runs a task:** 14 in 24 and 55 in 59.
+      - Placebos that won alone by luck read "adds" 8–17% of the time.
+      - So from 3 runs a task it tells adding from overlapping changes.
+        At 2, "overlaps" is not to be trusted.
+  - **Shaky keeps are re-run.** With `--breadth 1` too, a rule-chosen
+    change whose target reads "not fewer" is re-run on the tasks it
+    moved before it stays.
+  - The card says, for example, "best of 3 tested, replicated", and the
+    record keeps every contender's test under `tournament`. Each contender
+    is an arm of its own (`g0-h1-c2`), so N more arms a generation.
+  - **Synthetic, seeded** (100 evolutions a setting; 8 tasks at a 30% pass
+    rate, 2 runs a task; 6 candidate instructions, 2 of which lift their 4
+    tasks to 80% and 4 of which do nothing):
+
+    | Setting | Pass rate at the end | Helpers found (of 2) | Placebos kept | Runs |
+    | --- | --- | --- | --- | --- |
+    | breadth 1, 3 generations | 0.46 | 0.65 | 0.45 | 96 |
+    | breadth 1, 7 generations | 0.63 | 1.33 | 0.83 | 218 |
+    | breadth 3, 3 generations | 0.58 | 1.10 | 0.30 | 237 |
+    | breadth 5, 3 generations | 0.58 | 1.12 | 0.13 | 253 |
+
+    For the same number of runs, more generations of one change each
+    climbs higher, but keeps nearly one placebo an evolution. The
+    tournament keeps a far cleaner harness: at breadth 5, placebos fall
+    84% for about the same spend. So breadth buys precision, not speed
+    per run.
+- **No run past the point it could matter.** The changed harness runs
+  a round at a time: run 1 of every task, then run 2. After each round
+  `selfevolve.could_keep` asks whether any outcome of the runs left could
+  still make the change kept. Each task's pass count can end anywhere
+  from what it has to that plus every run left passing. The change can
+  still be kept only if some choice of those ends breaks no task and wins
+  more tasks than it loses. If none can, the arm stops: the change is
+  reverted, as the full arm would have reverted it, and the card says
+  after how many rounds. It is exact over counts, not a statistical
+  early stop, so it can't change a verdict. It only stops a change that
+  can no longer be kept: a kept change's runs become the next
+  generation's, so those always run in full. `--no-settle` runs every
+  run.
+  - **Synthetic** (six tasks with per-task pass rates taken from the
+    recorded python-slugify arms; 300 draws each): it skipped 17% of a
+    harmful change's runs at 2 runs a task, 26% at 3 and 35% at 5, and
+    about 4–5% of a change that does nothing. The verdict matched the
+    full arm's in all 2,700.
+  - **Recorded:** replayed over the 8 real changes on disk (96 runs,
+    $1.51), it would have stopped none early. They were neutral or
+    helpful, and with 2 or 3 runs a task one round rarely leaves a change
+    out of reach.
+- **One test among several.** Each verdict's sign test says how often a
+  change that did nothing would do as well. A run tests a change every
+  generation, though, and across several tests one is likelier to look
+  good by luck. So the run's tested changes are also taken as one family
+  (`selfevolve.family`, `family` in `self-evolve.json`). Each sign test
+  is adjusted with Holm's step-down method for all of them, and the card
+  shows it beside a kept change's own odds: "1 in 8 by chance (1 in 3
+  across the 3 tested)". Like the sign test, it is reported, never used
+  to decide. A tournament tests several changes in one generation, and
+  every contender with a sign test is in the family (`g1:explore:x` beside
+  `g1`), so "across the 9 tested" counts every test made.
+  - **Synthetic, seeded** (200 evolutions a setting, 12 tasks, 3 runs a
+    task, every change a placebo): counting only each generation's own
+    test, the family held 3 tests where 9 (breadth 3) and 11.6 (breadth
+    5) were made. Some adjusted chance fell to 0.05 or below in 1.5% and
+    3.0% of evolutions as counted, against 0.0% and 0.5% with every
+    test counted. The level held even miscounted, since the winner's
+    re-run pools its luck away, but the count shown was wrong.
+  - **Recorded:** the 4 changes kept in the real evolutions on disk each
+    had a 1-in-2 sign test on its own. In the python-slugify run, which
+    tested 3 changes, the adjusted chance is 1: across 3 tests, a change
+    that did nothing would do that well somewhere. None of them would
+    pass a family-wise correction. That is why a weak win is re-run on
+    fresh runs, and why `--prune` tests what was kept again.
+- **What the test could show.** Each verdict also carries its sign
+  test's resolution (`selfevolve.resolution`, `resolution` in each
+  test), said in the run and shown on the card. Like the sign test and
+  Holm's adjustment, it is reported and decides nothing. It has three
+  parts, all exact:
+  - the best chance the test can reach, which is every task moving the
+    change's way: with 4 tasks or fewer it cannot reach 0.05 at all;
+  - its power against a change that wins 3 in 4 of the tasks it moves,
+    at the share of tasks that moved in this run;
+  - the fewest tasks that would give that power 80%.
+  - **Recorded:** across the 10 changes tested in the real evolutions on
+    disk, all on 6 tasks, the best chance was 1 in 64. With 1 to 3 of
+    the 6 tasks moving, though, the power was at most 0.025, and 80%
+    would take 53 to 161 tasks. The scripted stand-in's 3 tasks cannot
+    reach 0.05 however they move. Every real verdict so far was made by
+    the paired rule over counts on evidence too thin for a test to
+    confirm, which is why replication, the held-out check and `--prune`
+    exist.
+- **Which tasks can tell a change apart.** Each generation records and
+  says which tasks passed some runs and failed others under the harness
+  it ran (`selfevolve.task_signal`, `signal` in `self-evolve.json`). A
+  task that always passed can only be broken by a change, and one that
+  always failed can only be won by a change that fixes it every run.
+  Most of a paired test's evidence sits in the first kind. The card
+  counts them per generation. When few tasks are mixed, an evolution has
+  little to learn from, and more tasks or more runs a task will help
+  more than more generations. It is reported, never used to drop a task:
+  a task that always passes is where a change that breaks things shows.
+  - **Recorded**, over the 9 generations of real evolutions on disk (54
+    task-generations): 13 tasks (24%) were mixed, 33 (61%) always passed
+    and 8 (15%) always failed. Of the 18 times a tested change moved a
+    task, 8 were on mixed tasks, 6 won a task that always failed, and 4
+    lost one that always passed. The six-task demo run had no mixed task,
+    which is why it learned nothing.
+- **Forgetting across the evolution.** `decide` reverts a change that
+  breaks a task, but only between the two harnesses it compares. A drift
+  over several kept changes passes that check at every step. Under one
+  change, a task can go from always passing to passing some runs. Under
+  the next, it can go from some to never.
+  - `selfevolve.forgetting` (`forgetting` in `self-evolve.json`, printed
+    at the end, and a section in `SELF_EVOLVE.md`) looks across the
+    whole lineage. A task is *forgotten* when it was solved, passing
+    every run, under an earlier harness state and passes no run under
+    the last. It is *weakened* when it passes only some.
+  - Each such task carries the exact one-sided chance of a fall that
+    large with an unchanged pass chance (Fisher), and whether the
+    harness changed in between. A fall under an unchanged harness is the
+    runs' own noise.
+  - Each generation now records its per-task counts (`per_task`), and
+    each test records both arms' (`per_task.current`, `.changed`), so
+    the lineage can be read this way. It decides nothing.
+  - This is EvoHarnessBench's harness-induced forgetting (backward
+    transfer), read per task with a test and a same-harness control.
+  - **Recorded:** the four real evolutions on disk, re-read from their
+    run directories. Nothing was forgotten. Two tasks were weakened,
+    each 2/2 → 1/2 (p 0.5). One was in the evolution that kept two
+    changes. The other was in a three-generation run whose harness never
+    changed: a fall like that is what two runs a task produce by chance.
+    A forgotten task with two runs either side has p = 1/6 at best, so
+    it is a lead to re-run, not a finding.
+- **Every kept change, tested again.** A change is kept on one paired
+  test, and a later change can make it redundant, so nothing kept is
+  ever questioned again. `--prune` puts each one through the same test
+  again when the evolution ends, newest first: the harness it ended
+  with, against that harness without the change. The change stays only
+  if the rule that kept it would keep it now. A dropped change is not
+  tried again, and the smaller harness is what the next one is tested
+  against. It runs before `--holdout`, so the held-out test is of the
+  harness that ships. It costs one arm per kept change, plus one.
+  `--generations 0 --prune` prunes a run that already finished. It is
+  also how to re-validate after the agent's model is upgraded: it
+  re-tests every kept change against the agent as it runs now.
+  - **Recorded:** the python-slugify evolution that kept "read
+    `AGENTS.md`" and then the edge-case instruction, re-tested with 36
+    real runs ($0.73). The edge-case instruction stays: 6/12 passed
+    without it and 9/12 with it, winning 3 tasks and losing none (1 in 8
+    by chance). Reading `AGENTS.md` is dropped: on top of the edge-case
+    instruction it passed 9/12 with and without, winning one task and
+    losing one. It had been kept on one task that moved. One evolution
+    is one case, not a rate.
 - **Tasks it never saw.** `--holdout N` keeps the last N tasks out of
   the evolution. At the end, the harness it ended with runs against the
   agent as it ships on them, paired and decided the same way: whether

@@ -37,6 +37,25 @@ def _tokenize(text: str) -> set[str]:
     return set(_WORD_RE.findall(text.lower()))
 
 
+def before_answer(trajectory) -> list:
+    """The steps before the run's answer (the only step, for a run of one)."""
+    steps = trajectory.steps
+    return steps[:-1] if len(steps) > 1 else list(steps)
+
+
+def twinless_steps(failing, passing) -> list:
+    """The steps before the failing run's answer with no twin (same type, name and input) anywhere in the
+    passing run, in trace order: where the two runs differ, read from structure alone."""
+    twins = {(s.type, s.name, s.input) for s in passing.steps}
+    return [i for i, st in enumerate(before_answer(failing)) if (st.type, st.name, st.input) not in twins]
+
+
+def first_twinless(failing, passing):
+    """Where the two runs first part (:func:`twinless_steps`); None when every step has a twin."""
+    found = twinless_steps(failing, passing)
+    return found[0] if found else None
+
+
 def jaccard(text_a: str, text_b: str) -> float:
     """Token-set Jaccard similarity of two strings, in [0, 1]."""
     ta, tb = _tokenize(text_a), _tokenize(text_b)

@@ -83,10 +83,22 @@ HOST_SESSION_PREFIXES = (
 CLAUDE_TOOLS = ("Bash", "Read", "Edit", "Write", "Grep", "Glob", "TodoWrite", "Task")
 
 
-def vendor_env() -> dict:
+def vendor_env(ceiling: Optional[Path] = None) -> dict:
     """The environment a vendor CLI runs in: the operator's, less anything
-    that would make the agent under test part of a host agent session."""
-    return {k: v for k, v in os.environ.items() if not k.startswith(HOST_SESSION_PREFIXES)}
+    that would make the agent under test part of a host agent session.
+
+    ``ceiling`` is the run's own directory. Git looks for a repository by
+    walking up from where it is run, so a run directory inside a checkout
+    (a ``TMPDIR`` set inside one, say) would hand the agent that checkout's
+    history, and a task built from a repository's history would find its
+    own fix there. Named in ``GIT_CEILING_DIRECTORIES``, git stops at the
+    run's directory: a workspace's own ``.git`` is still found, nothing
+    above it is. A ceiling the operator set is kept."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(HOST_SESSION_PREFIXES)}
+    if ceiling is not None:
+        here = str(Path(ceiling).resolve())
+        env["GIT_CEILING_DIRECTORIES"] = os.pathsep.join(x for x in (here, env.get("GIT_CEILING_DIRECTORIES")) if x)
+    return env
 #: directories that are tooling, not work: copied, never diffed
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache",
              ".pytest_cache", ".ruff_cache", ".tox", ".nox", ".cache"}
@@ -515,7 +527,7 @@ def run_vendor(spec: VendorSpec, task: dict, out: Path, *, run: str = "r1",
                   **({"price": price} if spec.kind == "codex" else {}), **kw)
 
     proc = subprocess.Popen(argv, cwd=str(workdir), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, env=vendor_env(), start_new_session=True,
+                            stderr=subprocess.PIPE, env=vendor_env(ceiling=tmp), start_new_session=True,
                             text=True, encoding="utf-8", errors="replace", bufsize=1)
     with _ACTIVE_LOCK:
         _ACTIVE["procs"].add(proc)

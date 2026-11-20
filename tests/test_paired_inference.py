@@ -57,6 +57,18 @@ class TestPairedInference(unittest.TestCase):
         self.assertGreater(result["diff"], 0)
         self.assertLess(result["ci95"][0], result["ci95"][1])
 
+    def test_the_interval_uses_t_on_pairs_minus_one(self):
+        """Ten paired tasks: t on 9 degrees of freedom (2.262), not z. With z, simulated suites of ten
+        single-run tasks held the true difference 0.90 of the time, and with t 0.94."""
+        from agentdiff.statistics import t_critical
+        pairs = [(True, False)] * 4 + [(False, True)] * 1 + [(True, True)] * 5
+        r = paired_inference(pairs)
+        self.assertAlmostEqual(r["critical"], round(t_critical(9), 4))
+        half = (r["ci95"][1] - r["ci95"][0]) / 2
+        self.assertAlmostEqual(half, t_critical(9) * r["se"], places=3)
+        everything = paired_inference([(True, False)] * 9 + [(False, False)])
+        self.assertLessEqual(everything["ci95"][1], 1.0, "a difference of rates stops at 1")
+
     def test_unpaired_tasks_are_dropped_and_counted(self):
         result = paired_inference([(True, None), (None, False), (True, False)])
         self.assertEqual(result["n_pairs"], 1)

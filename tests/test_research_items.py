@@ -246,13 +246,15 @@ class TestPassKInterval(unittest.TestCase):
                  str(ROOT / "demo" / "runs" / "traces"), "-o", tmp],
                 cwd=str(ROOT), capture_output=True, text=True, check=True)
             self.assertRegex(proc.stdout, r"pass\^k\s+k=1:\d\.\d{3} \[\d\.\d\d, \d\.\d\d\]")
-            self.assertIn("plug-in", proc.stdout)
+            self.assertIn("tasks resampled with replacement", proc.stdout)
             agg = json.loads((Path(tmp) / "aggregate.json").read_text(encoding="utf-8"))
             for row in agg["reliability"]["per_agent"].values():
                 for point in row["pass_hat_k"]["curve"]:
                     if point["value"] is not None:
                         lo, hi = point["ci95"]
-                        self.assertLessEqual(lo, hi)
+                        # an interval holds its own estimate: the pooled rate raised to k did not
+                        self.assertLessEqual(lo, point["value"])
+                        self.assertLessEqual(point["value"], hi)
 
 
 if __name__ == "__main__":

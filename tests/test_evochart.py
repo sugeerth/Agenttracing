@@ -81,6 +81,17 @@ class MatrixTest(unittest.TestCase):
             self.assertGreaterEqual(heads[1] - heads[0], int(len("g0 explored from the project") * 7),
                                     "g1's header starts after g0's ends, not over it")
 
+    def test_a_chart_with_links_is_a_group_and_says_so_only_then(self):
+        data = json.loads((EXAMPLE / "self-evolve.json").read_text())
+        rec = sorted((EXAMPLE / "g0-h0" / "records").glob("ranges*.json"))[0]
+        trace = EXAMPLE / "g0-h0" / json.loads(rec.read_text())["trace"]
+        linked = evolution_matrix(EXAMPLE, data, {str(trace.resolve()): "abcdef123456"})
+        self.assertIn('role="group"', linked, "an image role would hide its links from a screen reader")
+        self.assertIn("each square opens its run", linked)
+        bare = evolution_matrix(EXAMPLE, data)
+        self.assertIn('role="img"', bare)
+        self.assertNotIn("each square opens its run", bare, "no square opens anything")
+
     def test_nothing_to_draw_is_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(evolution_matrix(Path(tmp), {"lineage": []}), "")

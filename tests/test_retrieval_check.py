@@ -1,0 +1,124 @@
+"""Whether a run on a task from a repository's history reached outside its workspace for the project's own code
+(gittasks.reached_outside, retrieval_check, project_names)."""
+
+from __future__ import annotations
+
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from agentdiff.gittasks import project_names, reached_outside, retrieval_check  # noqa: E402
+from agentdiff.trace import Trajectory  # noqa: E402
+
+NAMES = ["python-slugify", "slugify"]
+
+
+def _run(*calls, run="r1"):
+    steps = [{"index": i, "type": "tool_call", "name": name, "input": inp, "output": ""} for i, (name, inp) in enumerate(calls)]
+    steps.append({"index": len(steps), "type": "answer", "name": "final", "input": "", "output": "done"})
+    return Trajectory.from_dict({"schema_version": 1, "trace_id": run, "run_id": run, "agent": {"name": "x"},
+                                 "task": {"id": "t", "prompt": "p"}, "outcome": {"success": True, "answer": "done"},
+                                 "totals": {}, "steps": steps})
+
+
+def bash(cmd):
+    return ("Bash", {"command": cmd})
+
+
+class ProjectNamesTest(unittest.TestCase):
+    def test_the_repository_and_its_packages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            for d in ("slugify", "src/extra_pkg", "tests", "docs"):
+                (ws / d).mkdir(parents=True)
+            for d in ("slugify", "src/extra_pkg", "tests"):
+                (ws / d / "__init__.py").write_text("")
+            self.assertEqual(project_names("python-slugify", ws), ["extra-pkg", "python-slugify", "slugify"])
+
+
+class ReachedOutsideTest(unittest.TestCase):
+    def test_each_way_out_is_named(self):
+        cases = {
+            "used git over the network": bash("cd /tmp && git clone https://example.org/other.git"),
+            "asked a package index for the project": bash("python3 -m pip download 'python_slugify==8.0.4' -d /tmp/x"),
+            "fetched a URL that names the project": ("WebFetch", {"url": "https://pypi.org/project/python-slugify/"}),
+            "searched the web for the project": ("WebSearch", {"query": "slugify add_uppercase_char fix"}),
+            "read an installed copy of the project": ("Read", {"file_path": "/usr/lib/python3/dist-packages/slugify/special.py"}),
+        }
+        for kind, call in cases.items():
+            self.assertEqual([s["kind"] for s in reached_outside(_run(call), NAMES)], [kind], kind)
+        piped = reached_outside(_run(bash("ls && cat /usr/local/lib/python3.11/site-packages/slugify/slugify.py | head")), NAMES)
+        self.assertEqual([s["kind"] for s in piped], ["read an installed copy of the project"])
+        extras = reached_outside(_run(bash("pip install 'python-slugify[unidecode]>=8'")), NAMES)
+        self.assertEqual([s["kind"] for s in extras], ["asked a package index for the project"])
+
+    def test_what_recorded_runs_really_did_is_not_flagged(self):
+        """Commands from the recorded python-slugify runs that a plain text search took for a fetch."""
+        clean = _run(
+            bash("python3 -m pip install -q flake8 pycodestyle mypy 2>&1 | tail -2; python3 -m pycodestyle slugify/slugify.py"),
+            bash('python3 -m pip install -q "coverage[toml]>=7" 2>&1 | tail -2; python3 -m coverage run -m pytest tests'),
+            bash("python3 -m pip show twine packaging readme_renderer; python3 -m twine check dist/python_slugify-9.1.1.tar.gz"),
+            bash("pip install -e . && git diff && git status && grep -rn slugify ."),
+            ("Read", {"file_path": "/tmp/agentdiff-work/slugify/special.py"}),
+            ("WebSearch", {"query": "how to write a unicode test in python"}))
+        self.assertEqual(reached_outside(clean, NAMES), [])
+
+    def test_the_github_cli_asking_github(self):
+        """Forms an audit of history-mined tasks describes: pull requests, the API and code search, through ``gh``."""
+        for cmd in ("gh pr diff 1234", "gh pr view 99 --comments", "gh -R un33k/python-slugify pr list --state merged",
+                    "gh --repo=un33k/python-slugify issue view 7", "gh api repos/un33k/python-slugify/commits",
+                    "gh search code 'def slugify' --repo un33k/python-slugify", "gh repo clone un33k/python-slugify /tmp/s",
+                    "gh release download v8.0.4 -R un33k/python-slugify", "cd /tmp && gh run view 5 --log | tail"):
+            got = [s["kind"] for s in reached_outside(_run(bash(cmd)), NAMES)]
+            self.assertEqual(got, ["asked GitHub with its command-line tool"], cmd)
+
+    def test_the_github_cli_staying_local(self):
+        for cmd in ("gh --version", "gh auth status", "gh config get editor", "gh help pr", "echo gh pr list"):
+            self.assertEqual(reached_outside(_run(bash(cmd)), NAMES), [], cmd)
+
+    def test_uv_asking_a_package_index(self):
+        for cmd in ("uv pip install python-slugify", "uv pip install 'python-slugify==8.0.4'",
+                    "uv pip download python_slugify -d /tmp/x", "uv add python-slugify"):
+            got = [s["kind"] for s in reached_outside(_run(bash(cmd)), NAMES)]
+            self.assertEqual(got, ["asked a package index for the project"], cmd)
+        for cmd in ("uv pip install -e .", "uv pip install pytest", "uv add --dev pytest", "uv run pytest -q", "uv sync"):
+            self.assertEqual(reached_outside(_run(bash(cmd)), NAMES), [], cmd)
+
+    def test_git_finding_a_repository_at_all(self):
+        """The workspace carries no .git: a git command that does not fail for want of one read another repository."""
+        def run(*steps):
+            calls = [("Bash", {"command": c}) for c, _ in steps]
+            traj = _run(*calls)
+            for step, (_, out) in zip(traj.steps, steps):
+                step.output = out
+            return [s["kind"] for s in reached_outside(traj, NAMES)]
+        found = "found a git repository outside the workspace"
+        self.assertEqual(run(("git log -p -1", "commit 1a2b\n    Fix the separator")), [found])
+        self.assertEqual(run(("git status", "On branch main\nnothing to commit")), [found])
+        self.assertEqual(run(("cd /srv/src && git show HEAD", "commit 9f")), [found])
+        # what the recorded runs got: no repository, so nothing reached
+        self.assertEqual(run(("git status", "fatal: not a git repository (or any of the parent directories): .git")), [])
+        for cmd in ("git --version", "git help log", "git config --global user.name x"):
+            self.assertEqual(run((cmd, "something")), [], cmd)
+        self.assertEqual(run(("git diff", "")), [], "nothing recorded, nothing to tell")
+        self.assertEqual(run(("git log", "bash: git: command not found")), [])
+        # a repository the run made itself is its own
+        self.assertEqual(run(("git init -q && git add . && git commit -qm base", "[main (root-commit) 1] base"),
+                             ("git log --oneline", "1 base")), [])
+
+    def test_counted_over_runs_and_reported_only(self):
+        runs = [_run(bash("pytest -q"), run="a"), _run(("WebSearch", {"query": "python-slugify changelog"}), run="b"),
+                _run(bash("git fetch origin && git log"), run="c")]
+        r = retrieval_check(runs, NAMES)
+        self.assertEqual((r["runs"], r["flagged"]), (3, 2))
+        self.assertEqual([x["run"] for x in r["per_run"]], ["b", "c"])
+        self.assertIn("2 of 3 run(s) reached outside the workspace", r["says"])
+        self.assertEqual(retrieval_check([], NAMES)["says"], "no runs to check")
+
+
+if __name__ == "__main__":
+    unittest.main()
