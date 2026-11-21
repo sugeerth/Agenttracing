@@ -4,6 +4,54 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-21
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- Loops: *DeLoop* (arXiv 2610.19376) calls a loop a tool call repeated
+  with identical arguments that gets the same observation, and reports
+  the share of runs with one. Also *Unsupervised Cycle Detection in
+  Agentic Applications* (arXiv 2511.10650), *ProcCtrlBench* (arXiv
+  2605.20251; duplicate steps against A→B→A→B chains), a coding-agent
+  harness that fingerprints calls in a sliding window (arXiv
+  2603.05344), and IAL-Scan (arXiv 2607.01641; infinite agent loops
+  found statically in code).
+- Context waste: *AgentDiet* (arXiv 2509.23586, FSE 2026; useless,
+  redundant and expired information cut 39.9–59.7% of input tokens),
+  *The Complexity Trap* (arXiv 2508.21433; observation masking about as
+  good as summarizing, for less), and a study of token use in agentic
+  coding (arXiv 2604.22750).
+- Graders and noise: an LLM-judge reproducibility study (arXiv
+  2606.26185; a grader left unseeded at temperature 1.0 by default), *On
+  Randomness in Agentic Evals* again, AgentAssay again.
+- Benchmarks: *Agent Psychometrics* and *Efficient Benchmarking of AI
+  Agents* again (logged on 2026-11-05 and 2026-10-19), *Lost in
+  Benchmarks?* (PSN-IRT), Fluid Benchmarking. Sequential tests: YEAST
+  (NeurIPS 2025) and mSPRT guides.
+
+**Taken: nothing.** Measured before deciding:
+- **Expired observations** (AgentDiet): 50 of the 94 recorded real runs
+  read a file and later edited it, so its read content went out of date
+  in context. That is the ordinary read-then-edit pattern, not waste: a
+  figure built on it would flag normal work. The byte shares were also
+  unsound, above 1 in some runs, because read steps are typed
+  differently across recorders.
+
+**Not taken, and why:**
+- **A loop rate** (DeLoop). `process.repeats` already counts cycles,
+  the same call returning the same observation, and the live `repeat`
+  guard stops them.
+- **Grader reproducibility under sampling.** AgentDiff's graders are
+  tests, not models; a grader's agreement with itself is checked since
+  2026-10-16.
+- **Mid-range task filtering and IRT task selection.** Logged on
+  2026-10-19 and 2026-11-05; `signal` already names the tasks that can tell a change
+  apart.
+- **Continuous sequential tests** (YEAST, mSPRT). Rejected on 2026-10-16
+  for accepting an error rate. The exact settle rule loses nothing.
+
 ## 2026-11-20
 
 **How it was read.** Through search-engine extracts; arxiv.org could not
