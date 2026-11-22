@@ -4,6 +4,51 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-22
+
+**How it was read.** Through search-engine extracts; arxiv.org,
+alphaxiv.org and huggingface.co could not be reached from this session.
+
+**Read:**
+- *What Resolve Rate Hides: Trajectory Structure Diagnostics for Coding
+  Agents* (arXiv 2607.06184, TraceProbe). INSIGHT flags recurring
+  problems within one run by rule. CONVERGE aligns a run to a reference
+  by a monotonic longest common subsequence and groups what does not
+  match into divergence spans. Closely matched resolve rates hide
+  different behaviour: one model verifies in several stages, another
+  stops as soon as one targeted test passes.
+- Self-evolving harnesses gated on held-out data: *PACE* (arXiv
+  2606.08106; a paired, anytime-valid acceptance test from McNemar's
+  discordant pairs and a betting e-process, with a fresh held-out pool
+  for audit), gated semantic quality-diversity, DarwinX, Self-Harness
+  and SEAGym again.
+- Task mining: SWE-rebench V2 (arXiv 2602.23866; 32,000+ tasks in 20
+  languages), SWE-Bench++, and REAP (arXiv 2604.01527; test-relevance
+  checks and multi-run stability filters); a study of SWE-bench Lite
+  found 34 flaky test suites, 30 flaky on the reference fix itself, from
+  unpinned dependencies.
+- Trace-diff tools on package indexes, read for what exists, not copied.
+
+**Taken: nothing.** Measured before deciding:
+- **How broad an agent's last check was** (TraceProbe's
+  multi-stage-versus-one-test finding). Over the 94 recorded real runs,
+  the last test command before the answer ran the whole suite in 9,
+  targeted tests in 45, and no test in 40. All 9 whole-suite runs are
+  one agent's, and all passed. The 10 failing runs split 6 targeted, 4
+  none. Ten failures cannot show the scope matters, agent and task are
+  tangled, and telling "targeted" from "whole" is a guess at command
+  shapes.
+
+**Not taken, and why:**
+- **CONVERGE's alignment and divergence spans.** AgentDiff's alignment,
+  `path_split` (2026-11-10) and `path_parting` (2026-11-18) already do
+  this, with the parting step and what lines up again.
+- **PACE.** An e-process accepts an error rate; anytime-valid tests were
+  rejected on 2026-10-16 and 2026-11-08, and McNemar on 2026-11-01.
+- **REAP's filters.** The check is run on the untouched workspace before
+  any agent works (a task that already passes is dropped), and a grader
+  must agree with itself (2026-10-16).
+
 ## 2026-11-21
 
 **How it was read.** Through search-engine extracts; arxiv.org could not
