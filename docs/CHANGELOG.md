@@ -5,6 +5,33 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## A run that read another source names that call
+
+`diagnosis._other_source`. The divergence hypothesis moves its root back
+to a tool call when all of these hold:
+- the aligner matched it to the other run's call of a different tool;
+- the results differ;
+- the call did not fail;
+- the run never made the other run's call (same tool, same result) at
+  all.
+
+That is the run reading another source in place of the one the passing
+run read. The value enters there and surfaces later, at the decision
+that used it. Unlike the 2026-10-24 rule, it needs no trace of the
+value in the run's own reasoning. The last condition keeps a delay (the
+run reaching the same source later) from moving the root.
+
+Measured (generated, 2,200 pairs, synthetic):
+- **Stripped:** exact decisive steps 1752 → 1791 of 1852, within ±1
+  1808 → 1847, and late misses 39 → 0.
+- **Annotated and handcrafted:** unchanged.
+- No cause kind changed.
+- **Without the last condition:** 25 `late_decision` cases moved a step
+  too early, and annotated within ±1 fell from 1852 to 1827.
+- **Recorded:** 0 of 19 failing and passing pairs changed diagnosis.
+- `examples/replay_sets.py`: held-out coverage 92% → 95% at the 90%
+  target.
+
 ## Which way the diagnoser's wrong steps fall
 
 `bench.miss_direction`, carried as `direction` in the benchmark's

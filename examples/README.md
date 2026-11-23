@@ -27,7 +27,7 @@ One demo pair's replay order, then a split-conformal top-k calibrated on half of
 $ python3 examples/replay_sets.py
 t05: the failing run has 5 steps; decisive step 1 (committed)
   replay in this order: [1, 2, 3, 4, 0] ...
-target 90%: replay the top 1 step (mean set 1.0), held-out coverage 92% over 60 cases; plain step order needs 6 for 95%
+target 90%: replay the top 1 step (mean set 1.0), held-out coverage 95% over 60 cases; plain step order needs 6 for 95%
 target 95%: replay the top 3 steps (mean set 2.97), held-out coverage 98% over 60 cases; plain step order needs 6 for 95%
 target 99%: 40 calibration cases are too few for any set to carry it
 the guarantee is marginal and holds for failures like these; on unlike traces, measure again

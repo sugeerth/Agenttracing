@@ -4,6 +4,50 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-23
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- Origin against carrier in failure attribution: *FALAT* (arXiv
+  2606.00765; later steps look wrong because they inherit an earlier
+  corrupted state, so attribution is a dependency-guided search, not
+  independent per-step labels, and judges mistake carriers for causes),
+  CHIEF (counterfactual screening of root causes against propagated
+  symptoms), AgenticRAG-FP (a hop-1 retrieval error surfacing at hop 3),
+  TRIAGE (ranked candidates over one accusation), and AgentRx again.
+- Repeated-run reliability: *Identical Runs, Different Results* (arXiv
+  2609.33812; one pairing run 52 times), *Beyond Pass@k* (arXiv
+  2608.14711), *Life After Benchmark Saturation* (CORE-Bench, arXiv
+  2606.26158), and AgentLens and SWE-NFI again.
+
+**Taken: a run that read another source names that call.** Run 39
+(2026-11-20) left 39 late misses in the stripped corpus, two steps after
+the truth, and said fixing them needed its own run and its own
+measurement of what it breaks. FALAT's distinction is the reading: the
+engine named the carrier, the reasoning step that used the value, not
+the call where it entered. In each case the failing run read a different
+source than the passing run, never read the passing run's source at all,
+and its stripped reasoning spelled out no value for the 2026-10-24 rule
+to follow.
+- Built: `diagnosis._other_source`.
+- Measured (generated, 2,200 pairs): stripped exact 1752 → 1791 of 1852,
+  late misses 39 → 0. Annotated, handcrafted, every cause kind, and the
+  19 recorded pairs unchanged. A first version without the "never read
+  the other source" condition moved 25 late_decision cases a step too
+  early. That is the failure the 2026-10-24 notes record, and it is why
+  the condition is there.
+
+**Not taken, and why:**
+- **Dependency-guided search with typed relations** (FALAT). Its typing
+  of how steps depend on each other is done by a model; here the rule
+  reads the alignment and the recorded calls.
+- **Counterfactual screening** (CHIEF). AgentDiff's replay checks a
+  decisive step by re-running from it, with control replays (2026-10-25).
+- **Ranked candidates** (TRIAGE). The diagnosis already carries a replay
+  order and a split-conformal replay set (2026-10-24).
+
 ## 2026-11-22
 
 **How it was read.** Through search-engine extracts; arxiv.org,

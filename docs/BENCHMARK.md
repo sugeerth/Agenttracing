@@ -105,6 +105,47 @@ contested failures start where the runs first part. The fallback is
 labelled, never presented as a cause, and stays hypothesized until a
 replay verifies it.
 
+## Another source, read in place (2026-11-23)
+
+The 39 late misses above had one shape. The failing run read a different
+source than the passing run (`get_ticket` returning an outdated note,
+where the other run asked `get_crm`), and the aligner paired the two
+calls as a match because they sit in the same place. The value entered
+there and surfaced two steps later, at the reasoning step that used it,
+and that is where the engine named the cause. The 2026-10-24 rule moves
+a root back to such a call only when words only its result carries
+reappear in what the run reasoned. Stripped, the run's reasoning names
+no value ("The source gives  for this case."), so the rule could not
+fire.
+
+`diagnosis._other_source` moves the root back to a call when all of
+these hold:
+- the aligner matched it to the other run's call of another tool;
+- the results differ;
+- the call did not fail;
+- the run never made the other run's call (same tool, same result)
+  anywhere.
+
+Without the last condition, the rule took 25 `late_decision` cases one
+step too early in both conditions: annotated within ±1 fell from 1,852
+to 1,827. Those runs do reach the other source, later, so the pairing
+was a delay. That is the same failure the 2026-10-24 notes record for a
+looser rule.
+
+| corpus | condition | exact, before | after | within ±1 | late misses | cause kind |
+|---|---|---|---|---|---|---|
+| handcrafted (20 pairs) | annotated | 16/16 | 16/16 | 16/16 | 0 | 20/20 |
+| generated, 2,200 pairs | annotated | 1800/1852 | 1800/1852 | 1852/1852 | 0 → 0 | 1933/2200, unchanged |
+| generated, 2,200 pairs | stripped | 1752/1852 | **1791/1852** | 1808 → 1847 | 39 → 0 | 1877/2200, unchanged |
+
+No cause kind changed in any family. The diagnoses of the 19 recorded
+failing and passing pairs under `demo/` are unchanged. The split-conformal
+replay set in `examples/replay_sets.py` went from 92% to 95% held-out
+coverage at its 90% target with one step replayed. This is measured on
+the generator, whose `wrong_fact` and `cascade` families are built this
+way; it says the rule finds this shape, not how often real failures take
+it.
+
 ## Which way the misses fall (2026-11-20)
 
 An audit of failure localizers (TrajAudit) found that most wrong guesses
