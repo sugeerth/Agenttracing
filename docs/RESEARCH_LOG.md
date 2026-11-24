@@ -4,6 +4,50 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-24
+
+**How it was read.** Through search-engine extracts; arxiv.org could not
+be reached from this session.
+
+**Read:**
+- Harness drift: *Don't Blame the Large Language Model: How Agent
+  Harness Evolution Shapes Coding Agent Quality* (arXiv 2607.03691). The
+  model is held fixed across 35 sequential harness releases, and later
+  versions spend nearly twice the tokens and tool calls with no quality
+  gain. Failed tasks burned 2.7 times the tokens of successful ones. A
+  practitioner guide built on it says to confirm a fixed model ID before
+  blaming the harness, and to record a harness fingerprint in each
+  trace. Also *Lessons Outlive Their Failures* (arXiv 2610.32578; drift
+  is 40.7% of a rule ledger, and one model audit pass misses half of
+  it), PRD-driven development in enterprise repositories (arXiv
+  2610.26394), and *How Do Coding-Agent Harnesses Self-Evolve?* again.
+- Attribution and abstention: *When Are Aggregate Agent Traces
+  Diagnosable?* (NeurIPS 2026; calibrated abstention, title and authors
+  only), conformal agent error attribution (arXiv 2605.06788), REFLECT
+  (arXiv 2606.09071), and AgentRx and FALAT again.
+- The OpenTelemetry GenAI conventions: still in Development, no release
+  of the GenAI repository found since the June move.
+
+**Taken: nothing.** Measured before deciding:
+- **An arm that mixes setups** (the harness study's "confirm a fixed
+  model ID"). `agentdiff runs` groups by agent name, so an agent whose
+  runs carry two models or two versions (a provider rotating the model,
+  a CLI upgrade between runs) would mix two setups in one arm. Across
+  all 79 agent arms in the recorded run sets under `demo/`, none carries
+  more than one model and version. A warning would read nothing on any
+  recorded run and could be shown only on synthetic data; that bar was
+  not met on 2026-11-11 or 2026-11-21 either.
+
+**Not taken, and why:**
+- **Cost that grows across harness versions.** `selfevolve.change_cost`
+  (2026-11-09) already gives each tested change's tokens, seconds and
+  steps per run against the harness before it, paired by task.
+- **Rules that outlive their failures.** `--prune` (2026-10-18) tests
+  every kept change again on top of the rest.
+- **Conformal attribution and calibrated abstention.** The diagnosis has
+  a split-conformal replay set (2026-10-24) and a contested outcome that
+  names no cause (2026-10-23).
+
 ## 2026-11-23
 
 **How it was read.** Through search-engine extracts; arxiv.org could not
