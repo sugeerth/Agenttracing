@@ -5,6 +5,8 @@
     agentdiff guard --install --protect-tests      also refuse edits to test files
     agentdiff guard --install --no-brief           no session brief at start
     agentdiff guard --status                       what the guards refused, by guard
+    agentdiff guard --replay traces/               before installing: what they would have refused in runs
+                                                   already recorded, among the failing runs and the passing
     agentdiff guard --uninstall                    take them out again
 
 Installed, Claude Code runs ``agentdiff guard`` on every tool call and at
@@ -41,6 +43,10 @@ def register(subparsers) -> None:
     p.add_argument("--install", action="store_true", help="add the hooks to .claude/settings.local.json here")
     p.add_argument("--uninstall", action="store_true", help="remove them")
     p.add_argument("--status", action="store_true", help="what the guards refused, by guard")
+    p.add_argument("--replay", nargs="+", default=None, metavar="DIR",
+                   help="run the guards over recorded traces (files or folders): what each would have refused, "
+                        "in the runs that failed and the runs that passed")
+    p.add_argument("--json", action="store_true", help="--replay: the full result as JSON")
     p.add_argument("--check", default="", metavar="CMD", help="the check the agent must run before it finishes")
     p.add_argument("--protect-tests", action="store_true", help="also refuse edits to test files")
     p.add_argument("--no-repeat", action="store_true", help="turn the repeat guard off")
@@ -165,6 +171,8 @@ def run(args: argparse.Namespace) -> int:
             return 2
         print("guards removed" if gone else "no guards were installed here")
         return 0
+    if args.replay:
+        return _replay(args)
     if args.status:
         from ..guard import summary
         s = summary(project)
@@ -177,6 +185,43 @@ def run(args: argparse.Namespace) -> int:
             print(f"  [{r.get('guard')}] {r.get('reason')}")
         return 0
     return _hook(args, project)
+
+
+def _replay(args) -> int:
+    """The guards over recorded runs, read and printed; nothing is written."""
+    from ..guard import is_ungraded, replay
+    from ..trace import Trajectory
+    files = []
+    for given in args.replay:
+        path = Path(given)
+        files += sorted(path.rglob("*.json")) if path.is_dir() else [path]
+    runs, skipped, ungraded = [], 0, set()
+    for f in files:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            runs.append(Trajectory.from_json(data))
+        except Exception:  # noqa: BLE001 — not a trace: a report, a config, a broken file
+            skipped += 1
+            continue
+        if is_ungraded(data):
+            ungraded.add(runs[-1].trace_id)
+    if not runs:
+        print("error: no traces found in " + ", ".join(args.replay), file=sys.stderr)
+        return 2
+    result = replay(runs, enabled=[g for g in _enabled(args) if g != "brief"], check=args.check, ungraded=ungraded)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    print(f"{result['runs']} recorded run(s): {result['failed']} failed, {result['passed']} passed"
+          + (f", {result['ungraded']} ungraded" if result["ungraded"] else "")
+          + (f"; {skipped} file(s) were not traces" if skipped else ""))
+    for line, (guard, row) in zip(result["says"], result["guards"].items()):
+        print("  " + line)
+        for ex in row["examples"][:3]:
+            where = "at its finish" if ex["step"] == "finish" else f"at step {ex['step']} ({ex['call'][:70]})"
+            print(f"      {ex['trace']}: {where}")
+    print("  where a guard would have stepped in, not what the agent would have done after it")
+    return 0
 
 
 def _grade(path: Path, root: Path, payload: dict) -> None:

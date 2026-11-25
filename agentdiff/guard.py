@@ -19,8 +19,9 @@ check ran (a test, lint or type check, or the command ``--check``
 names). The stop is refused once or twice (``max_stop_blocks``), with
 the command to run. It is never refused forever.
 
-**tests** (off unless asked). An edit to a test file is refused: fix the
-code, not the test that catches it.
+**tests** (off unless asked). An edit to one of the project's test files
+is refused: fix the code, not the test that catches it. A test the agent
+writes for itself outside the project is its own, and is let through.
 
 **brief** (``SessionStart``). Each session starts knowing what the last
 ones learned the hard way. The agent is told, in a few lines of context:
@@ -33,6 +34,13 @@ which earlier sessions ended with their own last check failing. Every
 line is a count or a command read from this project's files and the
 guard's own log; nothing in it is judged by a model. The check guard
 names the same command when it keeps the agent working.
+
+**Replayed** (:func:`replay`, ``agentdiff guard --replay DIR``). Before the
+guards are installed, they can be run over runs already recorded: each
+trace's tool calls go through the same rules, in order, with the state
+kept in memory, and the finish is put to the check guard. Each guard's
+refusals are counted among the runs that failed and the runs that passed,
+so its catch and its cost are read on runs whose outcome is known.
 
 Each decision is a rule over what the session did in this turn (since
 the person's last prompt), recorded in a small state file per session. Every refusal is logged
@@ -51,7 +59,7 @@ from pathlib import Path
 from typing import List, Optional
 
 __all__ = ["Guard", "GUARDS", "EDIT_TOOLS", "failed_output", "is_check_command", "decide", "graded", "summary",
-           "detect_check", "brief"]
+           "detect_check", "brief", "replay", "replay_says", "runner_verdict", "workspace_of", "is_ungraded"]
 
 GUARDS = ("repeat", "check", "tests", "brief")
 #: the longest session brief, in characters: a few lines of context, not a report
@@ -89,7 +97,25 @@ def failed_output(response) -> Optional[bool]:
         text = str(response or "")
     if not text.strip():
         return None
+    verdict = runner_verdict(text)
+    if verdict is not None:
+        return verdict
     return bool(_FAILED.search(text)) and not re.search(r"\b0 failed\b", text)
+
+
+#: a test runner's own last word: unittest's "OK" / "FAILED (...)" after its "Ran N tests" line, or pytest's tally
+_UNITTEST_END = re.compile(r"^Ran \d+ tests? in [\d.]+s\s*\n(?:\s*\n)*(OK\b|FAILED\b)", re.M)
+_PYTEST_END = re.compile(r"^[=\s]*((?:\d+ (?:failed|passed|errors?|skipped|xfailed|xpassed|warnings?|deselected)"
+                         r"(?:, )?)+) in [\d.]+s", re.M)
+
+
+def runner_verdict(text: str) -> Optional[bool]:
+    """Whether a test run failed, by the verdict its runner printed last; None when it printed none. A run
+    that prints a traceback or the word "Error" (a test of an error path, a warning) and then reports OK
+    passed: the runner's verdict is read before any stray word."""
+    found = [(m.start(), m.group(1) == "FAILED") for m in _UNITTEST_END.finditer(text)]
+    found += [(m.start(), bool(re.search(r"\d+ (failed|errors?)\b", m.group(1)))) for m in _PYTEST_END.finditer(text)]
+    return max(found)[1] if found else None
 
 
 def _sig(tool: str, tool_input: dict) -> str:
@@ -154,8 +180,11 @@ class Guard:
     def after(self, tool: str, tool_input: dict, response, failed: Optional[bool] = None) -> None:
         """PostToolUse (or PostToolUseFailure, ``failed=True``): what the call was and how it ended."""
         cmd = str((tool_input or {}).get("command") or "") if tool == "Bash" else ""
-        kind = "edit" if tool in EDIT_TOOLS else "check" if (tool == "Bash" and is_check_command(cmd, self.check)) \
-            else "run"
+        printed = " ".join(str(response.get(k) or "") for k in ("stdout", "stderr", "output", "content")) \
+            if isinstance(response, dict) else str(response or "")
+        # a check by its command, or by what it printed: a test runner's verdict, however the run was started
+        checked = tool == "Bash" and (is_check_command(cmd, self.check) or runner_verdict(printed) is not None)
+        kind = "edit" if tool in EDIT_TOOLS else "check" if checked else "run"
         if failed is None:
             failed = failed_output(response) if tool == "Bash" else None
         if failed and kind == "edit":
@@ -173,11 +202,12 @@ class Guard:
             from .insight import is_test_path
             path = str((tool_input or {}).get("file_path") or (tool_input or {}).get("notebook_path") or "")
             rel = path
-            try:
-                rel = str(Path(path).resolve().relative_to(self.dir.parent.parent.resolve()))
-            except (OSError, ValueError):
-                pass
-            if is_test_path(rel):
+            if Path(path).is_absolute():
+                try:
+                    rel = str(Path(path).resolve().relative_to(self.dir.parent.parent.resolve()))
+                except (OSError, ValueError):
+                    rel = ""  # outside the project: the agent's own scratch test, not one of the project's
+            if rel and is_test_path(rel):
                 reason = (f"agentdiff guard: {path} is a test. Leave the tests as they are and fix the code they test; "
                           f"a test changed to pass proves nothing.")
                 self.log("tests", reason, _sig(tool, tool_input))
@@ -442,3 +472,114 @@ def summary(root: Path) -> Optional[dict]:
     for r in rows:
         by[r.get("guard")] = by.get(r.get("guard"), 0) + 1
     return {"fired": len(rows), "by_guard": by, "sessions": len({r.get("session") for r in rows}), "recent": rows[-8:]}
+
+
+class _Dry(Guard):
+    """A guard over a recorded run: the same rules, its state in memory, nothing written."""
+
+    def _load(self) -> dict:
+        return {"calls": [], "stop_blocks": 0, "fired": []}
+
+    def save(self) -> None:
+        pass
+
+    def log(self, guard: str, reason: str, call: str) -> None:
+        self.state["fired"].append({"guard": guard, "call": call[:200], "reason": reason})
+
+
+def is_ungraded(data: dict) -> bool:
+    """Whether a trace, as stored, was never graded: its success was recorded as false for want of an expected
+    answer or a grader, and its note or harness says so. Such a run is neither a failure nor a pass."""
+    out, harness = data.get("outcome") or {}, data.get("harness") or {}
+    return str(out.get("note") or "").startswith("ungraded") or \
+        (isinstance(harness, dict) and harness.get("graded_by") == "ungraded")
+
+
+def _replay_one(traj, enabled, check: str, ungraded: bool = False) -> dict:
+    """Where each guard would have stepped into one recorded run: the first call each would refuse (its step
+    index) and whether the finish would be refused, and why."""
+    from .gittasks import _tool_input
+    root = workspace_of(traj)
+    if root is None:
+        enabled = tuple(e for e in enabled if e != "tests")  # which test files were the project's is not known
+    g = _Dry(Path(root or "."), "replay", enabled=enabled, check=check, max_stop_blocks=1)
+    first: dict = {}
+    for s in traj.steps:
+        if s.type != "tool_call" or not s.name:
+            continue
+        tin = _tool_input(s.input)
+        before = len(g.state["fired"])
+        g.before(s.name, tin)
+        for f in g.state["fired"][before:]:
+            first.setdefault(f["guard"], {"step": s.index, "call": f["call"]})
+        failed = s.error if isinstance(s.error, bool) else None
+        g.after(s.name, tin, str(s.output or ""), failed=failed)
+    before = len(g.state["fired"])
+    if g.stop():
+        reason = g.state["fired"][before]["reason"]
+        first.setdefault("check", {"step": "finish", "call": "Stop",
+                                   "why": "failing" if "last check failed" in reason else "unchecked"})
+    edited = any(c["kind"] == "edit" for c in g.state["calls"])
+    return {"trace": traj.trace_id, "task": traj.task.id, "success": None if ungraded else traj.outcome.success,
+            "edited": edited,
+            "refused": first, "workspace": root is not None}
+
+
+_CWD_RESET = re.compile(r"Shell cwd was reset to (/\S+)")
+
+
+def workspace_of(traj) -> Optional[str]:
+    """The directory a recorded run worked in, where its trace says: Claude Code prints it when it puts a
+    command's shell back there. None when the trace does not say."""
+    for s in traj.steps:
+        m = _CWD_RESET.search(str(s.output or ""))
+        if m:
+            return m.group(1)
+    return None
+
+
+def replay(trajectories, *, enabled=("repeat", "check"), check: str = "", ungraded=()) -> dict:
+    """The guards run over recorded runs: for each guard, how many runs it would have stepped into, among the
+    runs that failed (its catch) and the runs that passed (its cost), with every count's denominator.
+
+    It reads where a guard would have stepped in, not what the agent would have done next: a run the guard
+    sends back might have gone on to pass, or to fail the same way. Ungraded runs (``ungraded``: their trace
+    ids, :func:`is_ungraded`) are counted apart."""
+    ungraded = set(ungraded)
+    runs = [_replay_one(t, tuple(enabled), check, t.trace_id in ungraded) for t in trajectories]
+    out = {"runs": len(runs), "failed": sum(1 for r in runs if r["success"] is False),
+           "passed": sum(1 for r in runs if r["success"] is True),
+           "ungraded": sum(1 for r in runs if r["success"] is None), "guards": {}, "per_run": runs}
+    for guard in (g for g in GUARDS if g in enabled and g != "brief"):
+        hit = [r for r in runs if guard in r["refused"]]
+        scored = [r for r in runs if guard != "tests" or r["workspace"]]
+        row = {"refused": len(hit), "runs": len(scored),
+               "failed": sum(1 for r in scored if r["success"] is False),
+               "passed": sum(1 for r in scored if r["success"] is True),
+               "in_failed": sum(1 for r in hit if r["success"] is False),
+               "in_passed": sum(1 for r in hit if r["success"] is True),
+               "in_ungraded": sum(1 for r in hit if r["success"] is None),
+               "examples": [{"trace": r["trace"], **r["refused"][guard]} for r in hit[:5]]}
+        if guard == "check":
+            row["why"] = {k: sum(1 for r in hit if r["refused"]["check"].get("why") == k)
+                          for k in ("unchecked", "failing")}
+        out["guards"][guard] = row
+    out["says"] = replay_says(out)
+    return out
+
+
+def replay_says(result: dict) -> List[str]:
+    """One line per guard: what it would have stepped into, out of what."""
+    lines = []
+    for guard, row in result["guards"].items():
+        line = (f"{guard}: would have stepped into {row['in_failed']} of {row['failed']} failing run(s) and "
+                f"{row['in_passed']} of {row['passed']} passing run(s)")
+        if row["runs"] < result["runs"]:
+            line += f" (the {row['runs']} of {result['runs']} whose trace says where the project was)"
+        if row["in_ungraded"]:
+            line += f", and {row['in_ungraded']} of {result['ungraded']} ungraded"
+        if guard == "check" and row["refused"]:
+            line += (f" ({row['why']['unchecked']} finished with edits no check followed, "
+                     f"{row['why']['failing']} with their own last check failing)")
+        lines.append(line)
+    return lines

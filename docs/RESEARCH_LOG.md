@@ -4,6 +4,65 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-25
+
+**How it was read.** The overclaim repository's README was read in full.
+arxiv.org could not be reached, so *When Passing Checks Do Not Establish
+Completion* (arXiv 2611.22835) is known from search extracts only.
+
+**Read:**
+- Completion claims: *overclaim* (a study of how often Claude Code says
+  "done" when a hidden check fails, with a Stop hook). On solvable
+  tasks, 11 of 14 failed runs were reported done. In 10 of those 11, the
+  agent's own last test run after its last edit had passed. A rule
+  "no passing test after the last edit" caught 1 of the 11, with 13
+  false alarms among 87 correct "done" messages. A Stop hook that
+  blocks once in that case changed the wording more than the outcome:
+  false completions 5 of 9 against 5 of 6 for control, p = 1.00. Also
+  *When Passing Checks Do Not Establish Completion* (extract only), and
+  *The Verification Horizon*.
+- Self-evolving harnesses: Self-HPO (*Self-Evolving Coding Agents via
+  Harness-Policy Optimization*, arXiv 2610.22791), *Self-Evolving Agent
+  Harness* (arXiv 2610.18813), and Agentic Harness Engineering again.
+- Attribution: *Long-Horizon Agent Trajectory Attribution* (arXiv
+  2608.06909; attribution chains and leave-one-out perturbation),
+  CatchBench (arXiv 2608.22808), and SOAP, Who&When Pro and AgentRx,
+  logged before.
+- Repeated runs: *How Much Can Repeated Running Buy?* (arXiv
+  2606.00920; a variance ceiling) and *Identical Runs, Different
+  Results*, logged before.
+
+**Measured before deciding.** The overclaim pattern does not occur in the
+recorded real runs here. None of the 13 failing runs that edited files
+had a passing check after its last edit: 10 had no check, and 3 had
+their own last check failing. So the `check` guard's rule fires on all
+13 here, where the study's version of it caught 1 of 11. What was not
+known was the guard's cost on passing runs.
+
+**Took:** the guards replayed over recorded runs (`agentdiff guard
+--replay`), giving each guard's catch among failing runs and its cost
+among passing runs before it is installed. The replay found two
+misreadings in the live guards, both fixed:
+- a test run started by a script or heredoc was not counted as a check,
+  and a traceback printed before `OK` was read as a failure;
+- `--protect-tests` refused agents' own scratch tests outside the
+  project.
+
+The `check` guard's cost fell from 41 to 30 of 90 passing runs, with its
+catch unchanged at 13 of 16. `docs/GUARD.md`.
+
+**Not taken, and why:**
+- **A Stop hook that asks the agent to list what it could not verify**
+  (the study's claim mode). Its measured effect was on the wording
+  labelled, not on outcomes, and the study's labels came from models.
+- **Checking a passing check's breadth** (a targeted test against the
+  whole suite). No recorded run here shows the failure it would catch;
+  this was left on 2026-11-22 for the same reason.
+- **Self-HPO.** It trains the policy with reinforcement learning.
+- **Attribution chains** (Long-Horizon Agent Trajectory Attribution).
+  Its baselines perturb components and rerun them, and its annotation
+  framework is a model's.
+
 ## 2026-11-25, requested
 
 **Read:** nothing new. This was a requested build, not a research run.

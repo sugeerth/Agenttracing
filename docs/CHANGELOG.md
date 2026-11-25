@@ -5,6 +5,38 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Guards replayed over recorded runs (`agentdiff guard --replay`)
+
+`guard.replay`, `guard.replay_says`, `guard.workspace_of`,
+`guard.is_ungraded`. `--replay DIR…` puts each recorded trace's tool
+calls through the live guards' own rules, in order, with the state in
+memory. It counts, for each guard, the runs it would have stepped into
+among the runs that failed and the runs that passed, with every
+denominator. Ungraded runs are counted apart. The `tests` guard is
+replayed only where the trace says where the project was. It reads
+where a guard steps in, not what the agent would have done next.
+
+Two misreadings the replay found, fixed in the live guards:
+- **A test run's verdict.** `guard.runner_verdict` reads unittest's
+  `OK` or `FAILED (…)` after its `Ran N tests` line, and pytest's tally.
+  The runner's last verdict decides whether a run failed, before any
+  stray `Traceback` or `Error` in its output. A command whose output
+  carries a verdict counts as a check, however it was started.
+- **The project's tests only.** `--protect-tests` let through an edit to
+  a test file outside the project: the agent's own scratch test.
+
+Measured (recorded, 106 real runs: 16 failed, 90 passed):
+- **`check`:** steps into 13 of 16 failing runs before and after. Its
+  cost in passing runs is 41 of 90 → 30 of 90: 9 had tested by a
+  script or heredoc, and 2 printed a traceback before `OK`.
+- **`tests`:** 7 passing runs refused → 0, on the 30 runs whose project
+  is known.
+- **`repeat`:** 0 and 0.
+- **The session brief's association, recounted with the wider check:**
+  10 of 38 unchecked finishes failed against 3 of 62 checked
+  (one-sided Fisher p = 0.003, was 0.017). Within tasks: 8 of 26
+  against 0 of 26.
+
 ## Session briefs and the project's own check (`agentdiff guard`)
 
 `guard.detect_check`, `guard.brief`, and a fourth guard, `brief`, on

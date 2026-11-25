@@ -11,6 +11,7 @@ cd my-project
 agentdiff guard --install                       # guard every Claude Code session here
 agentdiff guard --install --check "pytest -q"   # ... held to a check you name
 agentdiff guard --status                        # what the guards refused, by guard
+agentdiff guard --replay runs/                  # before installing: what they would have refused in recorded runs
 agentdiff hub .                                 # the sessions, live, and the refusals on the Overview
 agentdiff guard --uninstall                     # take them out again
 ```
@@ -31,7 +32,7 @@ fact (`docs/SELF_EVOLVE.md`).
 | `repeat` | a shell command is about to run again after failing twice in a row, with nothing else done in between | the command, how often it failed, the line that says how (`1 failed, 3 passed`, the failing case), and to change something first | `repeated_call` |
 | `check` | the agent is about to finish, and it changed files after the last check ran, or that check failed | to run `--check`, or the check found in the project, and read the result. Refused at most `--max-stop-blocks` times (2), never forever | `claims_without_check`, `no_check_after_last_edit` |
 | `brief` | a session starts (`SessionStart`; `--no-brief` turns it off) | the project's check and to run it after the last edit; what the guards refused in earlier sessions here; how many recent sessions ended with their own last check failing. Never refuses anything | — |
-| `tests` | an edit to a test file (`--protect-tests`, off unless asked) | to fix the code, not the test that catches it | the `tests_edited` flag |
+| `tests` | an edit to one of the project's test files (`--protect-tests`, off unless asked). A test the agent writes for itself outside the project is let through | to fix the code, not the test that catches it | the `tests_edited` flag |
 
 These are normal and never refused:
 - running a failing test again after editing the code
@@ -39,10 +40,15 @@ These are normal and never refused:
 - finishing a turn that changed nothing
 
 A check is any test, lint or type-check command (`pytest`, `unittest`,
-`npm test`, `go test`, `cargo test`, `ruff`, `mypy`, `tsc` …), or the
-`--check` command. A failure is what Claude Code reports. A non-zero
-exit arrives as `PostToolUseFailure`, with the output in `error`.
-Otherwise the output is read (`2 failed`, `Traceback`, `FAILED`).
+`npm test`, `go test`, `cargo test`, `ruff`, `mypy`, `tsc` …), the
+`--check` command, or any command whose output ends in a test runner's
+verdict, however it was started (a script, a heredoc). A failure is what
+Claude Code reports. A non-zero exit arrives as `PostToolUseFailure`,
+with the output in `error`. Otherwise the runner's last verdict decides
+(unittest's `OK` or `FAILED (…)`, pytest's `2 failed, 3 passed`). Only
+when there is none is the output read for `Traceback`, `FAILED` and the
+like. A run that prints a traceback from a test of an error path, then
+reports `OK`, passed.
 
 A guard decides from what the session did in this turn, that is, since
 the person's last prompt. The person may have changed things between
@@ -92,13 +98,60 @@ counted as earlier ones. With nothing to say, it says nothing. It is at
 most 1,200 characters.
 
 Why say it at the start. In the recorded real runs that edited files
-(`demo/vendors/` and `demo/selfevolve/examples/`, 100 runs), 46 finished
-with no check after the last edit, and 10 of those failed (22%). Of the
-54 that checked, 3 failed (6%), one-sided Fisher p = 0.017. Within the
-8 tasks that have both kinds of run, 8 of 28 unchecked runs failed and
-0 of 18 checked runs did. That is an association in recorded runs, not
+(`demo/vendors/` and `demo/selfevolve/examples/`, 100 runs), 38 finished
+with no check after the last edit, and 10 of those failed (26%). Of the
+62 that checked, 3 failed (5%), one-sided Fisher p = 0.003. Within the
+9 tasks that have both kinds of run, 8 of 26 unchecked runs failed and
+0 of 26 checked runs did. (Counted when a check was a command alone,
+before test runs started any other way counted too: 10 of 46 against 3
+of 54, p = 0.017.) That is an association in recorded runs, not
 a measured effect of the brief. Its effect on real agents is not
 measured here: that needs live sessions with and without it.
+
+## Before installing: replay them over recorded runs
+
+```bash
+agentdiff guard --replay .agentdiff/traces/ runs/        # what each guard would have refused
+agentdiff guard --replay runs/ --protect-tests --json    # every run, every refusal
+```
+
+`--replay` puts each recorded trace's tool calls through the same rules,
+in order, with the state in memory, then puts its finish to the `check`
+guard. Nothing is written. For each guard it counts the runs it would
+have stepped into among the runs that failed (what it catches) and the
+runs that passed (what it costs), each with its denominator, and names
+the first few. Ungraded runs are counted apart. The `tests` guard is
+replayed only on runs whose trace says where the project was (Claude
+Code prints it); the line says how many those are.
+
+It reads where a guard would have stepped in, not what the agent would
+have done next. A run sent back might have gone on to pass, or to fail
+the same way.
+
+On the recorded real runs here (106 runs: 16 failed, 90 passed):
+
+| guard | failing runs it steps into | passing runs it steps into |
+|---|---|---|
+| `check` | 13 of 16 | 30 of 90 |
+| `repeat` | 0 of 16 | 0 of 90 |
+| `tests` (30 runs with the project known) | 0 of 2 | 0 of 28 |
+
+- **`check`:** of the 13 failing runs, 10 finished with edits no check
+  followed, and 3 with their own last check failing. Those 3 are all on
+  the suite's contradictory task, which no code can pass. Its honest
+  finish is a failed check and a message saying why, so sending it back
+  is a cost too: the stop limit (`--max-stop-blocks`) is what lets it
+  end. The 3 failures it misses edited nothing.
+- **Its cost:** 30 passing runs would be sent back once to run a check.
+  The first replay counted 41. Of those 11, 9 had run their tests some
+  other way (a script or a heredoc) that the guard did not yet count as a
+  check. In 2, a traceback printed before `OK` was read as a failure.
+  Both were fixed in the live guard.
+- **`tests`:** the first replay had it refuse 7 passing runs. Each was
+  the agent editing a test it wrote for itself in its scratch folder,
+  outside the project. It now protects only the project's tests.
+- **`repeat`:** no recorded run reran a failing command unchanged (as
+  run 29 found).
 
 ## What it records
 
