@@ -159,7 +159,7 @@ a claude.ai artifact it runs two real Claude agents on the viewer's account
 with tools defined in the page and streams every step; elsewhere it replays the recorded pair.
 ## Guard and trace Claude Code, and route
 
-`agentdiff guard --install --check 'pytest -q'` guards every Claude Code session in a project while it works, through its hooks (docs/GUARD.md): a failing command rerun unchanged is refused with its failure; a finish with edits made after the last check is sent back to run it (twice at most); `--protect-tests` refuses edits to tests.
+`agentdiff guard --install` guards every Claude Code session in a project while it works, through its hooks (docs/GUARD.md): each session starts told the project's check (found from its files, or `--check`) and what earlier sessions were refused; a failing command rerun unchanged is refused with its failure; a finish with edits made after the last check is sent back to run it (twice at most); `--protect-tests` refuses edits to tests.
 Each session is also traced to `.agentdiff/traces`, graded by its last check, and the hub's Overview lists every refusal. Or add the two hooks by hand; the final trace comes from the transcript, with the reasoning between calls:
 
 ```json

@@ -180,7 +180,7 @@ class CommandTest(unittest.TestCase):
         data = json.loads(settings.read_text())
         self.assertEqual(data["permissions"], {"allow": ["Bash"]})
         self.assertEqual(sorted(data["hooks"]),
-                         ["PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit"])
+                         ["PostToolUse", "PostToolUseFailure", "PreToolUse", "SessionStart", "Stop", "UserPromptSubmit"])
         self.assertEqual(len(data["hooks"]["PostToolUse"]), 2)
         self.assertIn("--check 'pytest -q'", data["hooks"]["Stop"][0]["hooks"][0]["command"])
         self.cli("guard", "--uninstall", "--project", str(self.root))

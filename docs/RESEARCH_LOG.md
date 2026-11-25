@@ -4,6 +4,20 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-25, requested
+
+**Read:** nothing new. This was a requested build, not a research run.
+
+**Took:** the guard tells each Claude Code session the project's check
+(found from its files) and what earlier sessions there were refused, at
+`SessionStart` (`docs/GUARD.md`). The measured reason: in 100 recorded
+real runs that edited files, an unchecked finish failed 10 of 46 times
+against 3 of 54 (p = 0.017), and 8 of 28 against 0 of 18 within tasks.
+
+**Left:** a model-written brief (a model would decide what the agent is
+told), and running the detected check from the hook (a hook that runs a
+test suite at session start is slow and can have side effects).
+
 ## 2026-11-24
 
 **How it was read.** Through search-engine extracts; arxiv.org could not

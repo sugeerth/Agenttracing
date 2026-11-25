@@ -5,6 +5,34 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Session briefs and the project's own check (`agentdiff guard`)
+
+`guard.detect_check`, `guard.brief`, and a fourth guard, `brief`, on
+Claude Code's `SessionStart` hook. `--install` adds the hook; `--no-brief`
+leaves it out.
+
+- **The check, found.** With no `--check`, the guard reads the project's
+  files for the check it already names: npm's test script, `cargo test`,
+  `go test ./...`, a `make test` target, pytest or unittest. It runs
+  nothing. What it found is kept in the session's state, and the `check`
+  guard's stop reason names it.
+- **The brief.** Each session starts told that check, what the guards
+  refused in earlier sessions in the project, and how many recent
+  sessions ended with their own last check failing. These are facts from
+  files, at most 1,200 characters. It never refuses anything.
+
+Measured:
+- **Detection (recorded and synthetic):** 7 of 7 task files that name a
+  check for their workspace, this repository's suite, and 15 project
+  skeletons.
+- **Why at the start (recorded, an association):** of 100 real runs that
+  edited files, 10 of 46 that finished without a check after the last
+  edit failed, and 3 of 54 that checked did, one-sided Fisher p = 0.017.
+  Within the 8 tasks with both kinds of run, 8 of 28 failed against 0
+  of 18.
+- **Not measured:** the brief's effect on live agents. There were no
+  agent keys in this session.
+
 ## A run that read another source names that call
 
 `diagnosis._other_source`. The divergence hypothesis moves its root back

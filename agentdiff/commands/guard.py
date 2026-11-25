@@ -3,13 +3,17 @@
     agentdiff guard --install                      in a project: guard every Claude Code session here
     agentdiff guard --install --check "pytest -q"  name the check the agent must run before it finishes
     agentdiff guard --install --protect-tests      also refuse edits to test files
+    agentdiff guard --install --no-brief           no session brief at start
     agentdiff guard --status                       what the guards refused, by guard
     agentdiff guard --uninstall                    take them out again
 
 Installed, Claude Code runs ``agentdiff guard`` on every tool call and at
 every stop (hooks in ``.claude/settings.local.json``, which git ignores).
 It refuses a failing command run again with nothing changed, and keeps
-the agent working when it changed files after its last check. With
+the agent working when it changed files after its last check. Each session
+starts with a brief: the command that checks this project (``--check``, or
+the one its own files name) and what the guards refused in earlier sessions
+here. With
 ``--traces`` (the default when installing) every session is also traced
 into ``.agentdiff/traces``, so ``agentdiff hub`` shows it live: its loop,
 its code, where to look. See :mod:`agentdiff.guard`.
@@ -41,6 +45,8 @@ def register(subparsers) -> None:
     p.add_argument("--protect-tests", action="store_true", help="also refuse edits to test files")
     p.add_argument("--no-repeat", action="store_true", help="turn the repeat guard off")
     p.add_argument("--no-check-guard", action="store_true", help="turn the check-before-finishing guard off")
+    p.add_argument("--no-brief", action="store_true",
+                   help="no brief at session start (the project's check, what earlier sessions here were refused)")
     p.add_argument("--max-stop-blocks", type=int, default=2, help="times a stop may be refused per session (default 2)")
     p.add_argument("--traces", default=None, metavar="DIR",
                    help="also trace each session into DIR (installed default: .agentdiff/traces)")
@@ -57,6 +63,8 @@ def _enabled(args) -> tuple:
         on.append("check")
     if args.protect_tests:
         on.append("tests")
+    if not args.no_brief:
+        on.append("brief")
     return tuple(on)
 
 
@@ -72,6 +80,8 @@ def _command(args, traces: str) -> str:
         parts.append("--no-repeat")
     if args.no_check_guard:
         parts.append("--no-check-guard")
+    if args.no_brief:
+        parts.append("--no-brief")
     if args.max_stop_blocks != 2:
         parts += ["--max-stop-blocks", str(args.max_stop_blocks)]
     if traces:
@@ -86,7 +96,7 @@ def _ours(entry: dict) -> bool:
     return any(MARK in str(h.get("command", "")) for h in entry.get("hooks") or [])
 
 
-def install(project: Path, command: str, traced: bool = True) -> Path:
+def install(project: Path, command: str, traced: bool = True, brief: bool = True) -> Path:
     path = project / SETTINGS
     data = {}
     if path.is_file():
@@ -98,6 +108,8 @@ def install(project: Path, command: str, traced: bool = True) -> Path:
               "Stop": {"hooks": [hook]}}
     if traced:
         wanted["UserPromptSubmit"] = {"hooks": [hook]}  # the trace's prompt
+    if brief:
+        wanted["SessionStart"] = {"hooks": [hook]}  # the brief: the project's check, what earlier sessions hit
     for event, entry in wanted.items():
         kept = [e for e in hooks.get(event) or [] if not _ours(e)]
         hooks[event] = kept + [entry]
@@ -131,12 +143,16 @@ def run(args: argparse.Namespace) -> int:
     if args.install:
         traces = None if args.no_traces else (args.traces or str(project / ".agentdiff" / "traces"))
         try:
-            path = install(project, _command(args, traces), traced=bool(traces))
+            path = install(project, _command(args, traces), traced=bool(traces), brief=not args.no_brief)
         except (OSError, ValueError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         print(f"guarding Claude Code in {project}: hooks in {path}")
-        print(f"  on: {', '.join(_enabled(args))}" + (f"; check: {args.check}" if args.check else ""))
+        from ..guard import detect_check
+        found = None if args.check else detect_check(project)
+        print(f"  on: {', '.join(_enabled(args))}" + (f"; check: {args.check}" if args.check else
+                                                    f"; check: {found['command']} ({found['from']} names it)" if found
+                                                    else "; check: none found here, name one with --check"))
         if traces:
             print(f"  every session traced to {traces}; see it live: agentdiff hub {project}")
         print("  off again: agentdiff guard --uninstall")
