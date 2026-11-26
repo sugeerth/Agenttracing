@@ -101,7 +101,7 @@ class ReplayTest(unittest.TestCase):
         self.assertTrue(is_ungraded({"outcome": {"success": False, "note": "ungraded: no expected answer"}}))
         self.assertTrue(is_ungraded({"outcome": {"success": False}, "harness": {"graded_by": "ungraded"}}))
         self.assertFalse(is_ungraded({"outcome": {"success": False}}))
-        got = replay(runs, enabled=("repeat", "check"), ungraded={"f__ungraded"})
+        got = replay(runs, enabled=("repeat", "check"), ungraded={5})
         self.assertEqual((got["runs"], got["failed"], got["passed"], got["ungraded"]), (6, 3, 2, 1))
         check = got["guards"]["check"]
         self.assertEqual((check["in_failed"], check["in_passed"], check["in_ungraded"]), (2, 1, 1))
@@ -110,6 +110,21 @@ class ReplayTest(unittest.TestCase):
         self.assertIn("check: would have stepped into 2 of 3 failing run(s) and 1 of 2 passing run(s), "
                       "and 1 of 1 ungraded (3 finished with edits no check followed, 1 with their own last check "
                       "failing)", got["says"])
+
+    def test_one_trace_id_in_two_folders_is_two_runs(self):
+        from agentdiff.guard import replay_variants
+        loop = [bash("pytest -q", "1 failed in 0.1s")] * 2
+        runs = [run("t__r1", False, loop), run("t__r1", True, [bash("ls", "a.py")])]
+        rows = {v["rule"]: v for v in replay_variants(runs) if v["guard"] == "repeat"}
+        once = rows["a failing command rerun unchanged after 1 failure"]
+        self.assertEqual((once["in_failed"], once["in_passed"]), (1, 0), "the passing namesake is not refused")
+
+    def test_two_long_scripts_alike_at_the_start_are_two_commands(self):
+        head = "python3 - <<'EOF'\n" + "x = 1\n" * 120
+        g = Guard(Path(tempfile.mkdtemp()), "s", enabled=("repeat",), repeat_after=1)
+        g.after("Bash", {"command": head + "print(check(1))\nEOF"}, "Traceback\nValueError: no")
+        self.assertIsNone(g.before("Bash", {"command": head + "print(check(2))\nEOF"}), "the script was changed")
+        self.assertIsNotNone(g.before("Bash", {"command": head + "print(check(1))\nEOF"}), "the same script again")
 
     def test_a_rerun_unchanged_is_where_repeat_steps_in(self):
         steps = [bash("pytest -q", "1 failed in 0.1s")] * 3
@@ -149,6 +164,48 @@ class RecordedTest(unittest.TestCase):
         self.assertEqual(got["guards"]["tests"]["refused"], 0, "the edits it once refused were the agents' own tests")
 
 
+class VariantTest(unittest.TestCase):
+    def test_each_rule_against_the_same_runs(self):
+        from agentdiff.guard import replay_variants
+        runs = [
+            run("a__unchecked_fail", False, [edit("/w/a.py")]),
+            run("b__failing_check_fail", False, [edit("/w/a.py"), bash("pytest -q", "1 failed in 0.1s")]),
+            run("c__checked_pass", True, [edit("/w/a.py"), bash("pytest -q", "3 passed in 0.1s")]),
+            run("d__once_failed_pass", True, [bash("pytest -q", "1 failed in 0.1s"), edit("/w/a.py"),
+                                              bash("pytest -q", "3 passed in 0.1s")]),
+            run("e__loop_fail", False, [bash("pytest -q", "1 failed in 0.1s")] * 3),
+        ]
+        rows = {(v["guard"], v["rule"]): v for v in replay_variants(runs)}
+        installed = [v for v in rows.values() if v["installed"]]
+        self.assertEqual([v["guard"] for v in installed], ["check", "repeat"])
+        both = rows[("check", "edits no check followed, or a last check that failed")]
+        self.assertEqual((both["in_failed"], both["failed"], both["in_passed"], both["passed"]), (2, 3, 0, 2))
+        self.assertEqual(rows[("check", "edits no check followed, only")]["in_failed"], 1)
+        self.assertEqual(rows[("check", "a last check that failed, only")]["in_failed"], 1)
+        after = {n: rows[("repeat", f"a failing command rerun unchanged after {n} failure{'s' if n > 1 else ''}")]
+                 for n in (1, 2, 3)}
+        self.assertEqual([after[n]["in_failed"] for n in (1, 2, 3)], [1, 1, 0], "three runs: refused at 1 and 2")
+        self.assertEqual(after[1]["in_passed"], 0, "a failure then an edit is not a rerun unchanged")
+        lo, hi = both["catch_ci"]
+        self.assertTrue(lo < 2 / 3 < hi)
+
+
+class PageTest(unittest.TestCase):
+    def test_the_page_draws_every_run_and_runs_no_script(self):
+        from agentdiff.guard import replay_variants
+        from agentdiff.guardreport import replay_html
+        runs = [run("a__unchecked_fail", False, [edit("/w/a.py")]),
+                run("b__checked_pass", True, [edit("/w/a.py"), bash("pytest -q", "3 passed in 0.1s")]),
+                run("c__<odd>&name", True, [edit("/w/a.py")])]
+        page = replay_html(replay(runs, enabled=("repeat", "check")), replay_variants(runs), sources=["runs/"])
+        self.assertIn("The check guard steps into 1 of 1 failing runs, and 1 of 2 that passed", page)
+        self.assertEqual(page.count("<svg viewBox"), 3 + 5, "one strip a run, and the key's five marks")
+        self.assertNotIn("<script", page.lower())
+        self.assertNotIn("<odd>", page, "a trace name is text, never markup")
+        self.assertIn("c__&lt;odd&gt;&amp;name", page)
+        self.assertIn("installed", page)
+
+
 class CommandTest(unittest.TestCase):
     def test_the_command(self):
         traces = ROOT / "demo/vendors/aa-suite/traces"
@@ -163,6 +220,11 @@ class CommandTest(unittest.TestCase):
             r = subprocess.run([sys.executable, "-m", "agentdiff", "guard", "--replay", tmp],
                                capture_output=True, text=True, cwd=str(ROOT), timeout=120)
             self.assertEqual(r.returncode, 2)
+            out = Path(tmp) / "replay.html"
+            r = subprocess.run([sys.executable, "-m", "agentdiff", "guard", "--replay", str(traces), "--html", str(out)],
+                               capture_output=True, text=True, cwd=str(ROOT), timeout=120)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("Each rule an operator could choose", out.read_text())
 
 
 if __name__ == "__main__":

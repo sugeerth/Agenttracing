@@ -4,6 +4,17 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-25, requested, second
+
+**Read:** nothing new. This was a requested build on run 44's replay.
+
+**Took:** the replay as a page (`--html`), and each rule an operator could
+choose replayed against the same runs with exact intervals
+(`docs/GUARD.md`). Drawing it showed two mistakes, both fixed: a run
+counted once per folder its trace id appears in, and the live `repeat`
+guard reading two long scripts that share their first 400 characters as
+one command.
+
 ## 2026-11-25
 
 **How it was read.** The overclaim repository's README was read in full.

@@ -5,6 +5,34 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The guard replay as a page, and every rule an operator could choose
+
+`guardreport.replay_html`, `guard.replay_variants`, and `--html FILE` on
+`agentdiff guard --replay`. The page has no script. Its picture is the
+`check` guard's table of outcomes (failed or passed, against sent back or
+let finish), each cell filled with its own runs as strips: a mark per
+tool call and a red rule where the guard steps in. Below it, each rule an
+operator could choose is replayed against the same runs beside the one
+installed, with exact 95% intervals:
+- `check`: edits no check followed, a failing last check, or either
+  (installed);
+- `repeat`: after 1, 2 (installed) or 3 failures.
+
+Recorded, 106 real runs:
+- `check` either way: 13 of 16 failing, 30 of 90 passing.
+- Edits no check followed only: 10 of 16 and 28 of 90.
+- A failing last check only: 3 of 16 and 2 of 90.
+- `repeat`: 0 and 0 at every threshold.
+
+Two mistakes the first page showed, fixed:
+- **One run counted 4 times.** The variants matched runs by trace id,
+  and one id names runs in several example folders. Runs, and the
+  ungraded ones, are now told apart by their place.
+- **The live `repeat` guard compared only a command's first 400
+  characters.** A rewritten long heredoc script read as the same command
+  rerun. A long command is now compared in full: its first 400
+  characters and a hash of all of it.
+
 ## Guards replayed over recorded runs (`agentdiff guard --replay`)
 
 `guard.replay`, `guard.replay_says`, `guard.workspace_of`,

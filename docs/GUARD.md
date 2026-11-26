@@ -113,6 +113,7 @@ measured here: that needs live sessions with and without it.
 ```bash
 agentdiff guard --replay .agentdiff/traces/ runs/        # what each guard would have refused
 agentdiff guard --replay runs/ --protect-tests --json    # every run, every refusal
+agentdiff guard --replay runs/ --html replay.html        # the same, as a page
 ```
 
 `--replay` puts each recorded trace's tool calls through the same rules,
@@ -152,6 +153,35 @@ On the recorded real runs here (106 runs: 16 failed, 90 passed):
   outside the project. It now protects only the project's tests.
 - **`repeat`:** no recorded run reran a failing command unchanged (as
   run 29 found).
+
+### The page, and the rules an operator could choose
+
+`--html FILE` writes the replay as one page, with no script. Its picture
+is the `check` guard's table of outcomes: failed or passed, against sent
+back or let finish. Each cell is filled with its own runs, one small
+strip per run: a mark per tool call (edit, check passed, check failed,
+anything else) and a red rule where the guard steps in. Below it, each
+rule an operator could choose is replayed against the same runs, beside
+the one installed, with exact 95% intervals (`guard.replay_variants`).
+On the recorded runs here:
+
+| rule | failing runs it steps into | passing runs it sends back |
+|---|---|---|
+| `check`, installed: edits no check followed, or a failing last check | 13 of 16 (54–96%) | 30 of 90 (24–44%) |
+| `check`: edits no check followed, only | 10 of 16 (35–85%) | 28 of 90 (22–42%) |
+| `check`: a failing last check, only | 3 of 16 (4–46%) | 2 of 90 (0–8%) |
+| `repeat` after 1, 2 (installed) or 3 failures | 0 of 16 | 0 of 90 (0–4%) |
+
+No recorded run reran a failing command unchanged, at any threshold. The
+first page drawn showed 4 passing runs refused after one failure. That
+was two mistakes, both fixed:
+- **In the comparison:** one trace id names runs in several example
+  folders, and the variants matched runs by id, so one run counted 4
+  times. Runs are now told apart by their place in the replay.
+- **In the live guard:** it compared only a command's first 400
+  characters. The agent had rewritten the end of a long heredoc script,
+  and the guard took the new script for the old one rerun. A long
+  command is now compared in full.
 
 ## What it records
 

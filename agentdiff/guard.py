@@ -59,7 +59,7 @@ from pathlib import Path
 from typing import List, Optional
 
 __all__ = ["Guard", "GUARDS", "EDIT_TOOLS", "failed_output", "is_check_command", "decide", "graded", "summary",
-           "detect_check", "brief", "replay", "replay_says", "runner_verdict", "workspace_of", "is_ungraded"]
+           "detect_check", "brief", "replay", "replay_says", "replay_variants", "runner_verdict", "workspace_of", "is_ungraded"]
 
 GUARDS = ("repeat", "check", "tests", "brief")
 #: the longest session brief, in characters: a few lines of context, not a report
@@ -120,7 +120,12 @@ def runner_verdict(text: str) -> Optional[bool]:
 
 def _sig(tool: str, tool_input: dict) -> str:
     if tool == "Bash":
-        return "Bash:" + " ".join(str((tool_input or {}).get("command") or "").split())[:400]
+        cmd = " ".join(str((tool_input or {}).get("command") or "").split())
+        if len(cmd) <= 400:
+            return "Bash:" + cmd
+        # a long command is told apart by all of it: two scripts that share their first lines are not the same run
+        import hashlib
+        return "Bash:" + cmd[:400] + " #" + hashlib.sha1(cmd.encode("utf-8")).hexdigest()[:12]
     return f"{tool}:{(tool_input or {}).get('file_path') or (tool_input or {}).get('notebook_path') or ''}"
 
 
@@ -144,7 +149,8 @@ class Guard:
     """One session's guard: its state on disk, and the decisions it makes."""
 
     def __init__(self, root: Path, session: str, *, enabled=("repeat", "check"), check: str = "",
-                 max_stop_blocks: int = 2) -> None:
+                 max_stop_blocks: int = 2, repeat_after: int = REPEAT_AFTER) -> None:
+        self.repeat_after = max(1, int(repeat_after))
         self.dir = Path(root) / ".agentdiff" / "guard"
         self.session = re.sub(r"[^A-Za-z0-9_.-]", "_", session or "session")[:80]
         self.enabled = set(enabled)
@@ -221,7 +227,7 @@ class Guard:
                 if c["sig"] != sig:
                     break
                 tail.append(c)
-            if len(tail) >= REPEAT_AFTER and all(c["failed"] for c in tail):
+            if len(tail) >= self.repeat_after and all(c["failed"] for c in tail):
                 said = tail[0].get("said") or "the same failure"
                 reason = (f"agentdiff guard: you have run `{sig[5:][:120]}` {len(tail)} times in a row and it failed "
                           f"each time ({said}), with nothing changed in between. Running it again unchanged will fail "
@@ -495,14 +501,14 @@ def is_ungraded(data: dict) -> bool:
         (isinstance(harness, dict) and harness.get("graded_by") == "ungraded")
 
 
-def _replay_one(traj, enabled, check: str, ungraded: bool = False) -> dict:
+def _replay_one(traj, enabled, check: str, ungraded: bool = False, repeat_after: int = REPEAT_AFTER) -> dict:
     """Where each guard would have stepped into one recorded run: the first call each would refuse (its step
     index) and whether the finish would be refused, and why."""
     from .gittasks import _tool_input
     root = workspace_of(traj)
     if root is None:
         enabled = tuple(e for e in enabled if e != "tests")  # which test files were the project's is not known
-    g = _Dry(Path(root or "."), "replay", enabled=enabled, check=check, max_stop_blocks=1)
+    g = _Dry(Path(root or "."), "replay", enabled=enabled, check=check, max_stop_blocks=1, repeat_after=repeat_after)
     first: dict = {}
     for s in traj.steps:
         if s.type != "tool_call" or not s.name:
@@ -511,18 +517,21 @@ def _replay_one(traj, enabled, check: str, ungraded: bool = False) -> dict:
         before = len(g.state["fired"])
         g.before(s.name, tin)
         for f in g.state["fired"][before:]:
-            first.setdefault(f["guard"], {"step": s.index, "call": f["call"]})
+            first.setdefault(f["guard"], {"step": s.index, "call": f["call"], "at": len(g.state["calls"])})
         failed = s.error if isinstance(s.error, bool) else None
         g.after(s.name, tin, str(s.output or ""), failed=failed)
     before = len(g.state["fired"])
     if g.stop():
         reason = g.state["fired"][before]["reason"]
-        first.setdefault("check", {"step": "finish", "call": "Stop",
+        first.setdefault("check", {"step": "finish", "call": "Stop", "at": len(g.state["calls"]),
                                    "why": "failing" if "last check failed" in reason else "unchecked"})
     edited = any(c["kind"] == "edit" for c in g.state["calls"])
+    # each tool call, in order, as the guard read it: an edit, a check that passed or failed, anything else
+    path = "".join("e" if c["kind"] == "edit" else ("x" if c["failed"] else "c") if c["kind"] == "check" else "r"
+                   for c in g.state["calls"])
     return {"trace": traj.trace_id, "task": traj.task.id, "success": None if ungraded else traj.outcome.success,
             "edited": edited,
-            "refused": first, "workspace": root is not None}
+            "refused": first, "workspace": root is not None, "path": path}
 
 
 _CWD_RESET = re.compile(r"Shell cwd was reset to (/\S+)")
@@ -538,15 +547,17 @@ def workspace_of(traj) -> Optional[str]:
     return None
 
 
-def replay(trajectories, *, enabled=("repeat", "check"), check: str = "", ungraded=()) -> dict:
+def replay(trajectories, *, enabled=("repeat", "check"), check: str = "", ungraded=(),
+           repeat_after: int = REPEAT_AFTER) -> dict:
     """The guards run over recorded runs: for each guard, how many runs it would have stepped into, among the
     runs that failed (its catch) and the runs that passed (its cost), with every count's denominator.
 
     It reads where a guard would have stepped in, not what the agent would have done next: a run the guard
-    sends back might have gone on to pass, or to fail the same way. Ungraded runs (``ungraded``: their trace
-    ids, :func:`is_ungraded`) are counted apart."""
+    sends back might have gone on to pass, or to fail the same way. Ungraded runs (``ungraded``: their places in
+    ``trajectories``, since one trace id can name runs in several folders; :func:`is_ungraded`) are counted
+    apart."""
     ungraded = set(ungraded)
-    runs = [_replay_one(t, tuple(enabled), check, t.trace_id in ungraded) for t in trajectories]
+    runs = [_replay_one(t, tuple(enabled), check, i in ungraded, repeat_after) for i, t in enumerate(trajectories)]
     out = {"runs": len(runs), "failed": sum(1 for r in runs if r["success"] is False),
            "passed": sum(1 for r in runs if r["success"] is True),
            "ungraded": sum(1 for r in runs if r["success"] is None), "guards": {}, "per_run": runs}
@@ -583,3 +594,43 @@ def replay_says(result: dict) -> List[str]:
                      f"{row['why']['failing']} with their own last check failing)")
         lines.append(line)
     return lines
+
+
+def replay_variants(trajectories, *, check: str = "", ungraded=()) -> List[dict]:
+    """Each guard's rule as installed beside the variants an operator could choose, replayed over the same
+    runs: what each would catch among the failing runs and cost among the passing, with exact 95% intervals.
+
+    ``check``: send a finish back for edits no check followed, or for a last check that failed, or for both
+    (as installed). ``repeat``: refuse a failing command rerun unchanged after 1, 2 (as installed) or 3 failures.
+    Every count comes from the same rules the live guard runs; nothing is fitted to the runs."""
+    from .statistics import exact_interval
+    trajectories = list(trajectories)
+    base = replay(trajectories, enabled=("repeat", "check"), check=check, ungraded=ungraded)
+    graded = [r for r in base["per_run"] if r["success"] is not None]
+    failed = [r for r in graded if r["success"] is False]
+    passed = [r for r in graded if r["success"] is True]
+
+    def row(guard, rule, installed, hits):
+        k_f = sum(1 for r in failed if hits(r))
+        k_p = sum(1 for r in passed if hits(r))
+        return {"guard": guard, "rule": rule, "installed": installed, "in_failed": k_f, "failed": len(failed),
+                "in_passed": k_p, "passed": len(passed), "catch_ci": exact_interval(k_f, len(failed)),
+                "cost_ci": exact_interval(k_p, len(passed))}
+
+    def why(r):
+        return (r["refused"].get("check") or {}).get("why")
+
+    rows = [row("check", "edits no check followed, or a last check that failed", True,
+                lambda r: "check" in r["refused"]),
+            row("check", "edits no check followed, only", False, lambda r: why(r) == "unchecked"),
+            row("check", "a last check that failed, only", False, lambda r: why(r) == "failing")]
+    for r, i in zip(base["per_run"], range(len(base["per_run"]))):
+        r["_i"] = i  # runs are told apart by place: one trace id can name runs in several folders
+    for n in (1, 2, 3):
+        hit = {i for i, r in enumerate(replay(trajectories, enabled=("repeat",), ungraded=ungraded,
+                                              repeat_after=n)["per_run"]) if "repeat" in r["refused"]}
+        rows.append(row("repeat", f"a failing command rerun unchanged after {n} failure{'s' if n > 1 else ''}",
+                        n == REPEAT_AFTER, lambda r, hit=hit: r["_i"] in hit))
+    for r in base["per_run"]:
+        r.pop("_i", None)
+    return rows

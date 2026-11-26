@@ -7,6 +7,7 @@
     agentdiff guard --status                       what the guards refused, by guard
     agentdiff guard --replay traces/               before installing: what they would have refused in runs
                                                    already recorded, among the failing runs and the passing
+    agentdiff guard --replay traces/ --html out.html   the same, as a page: every run drawn, each rule compared
     agentdiff guard --uninstall                    take them out again
 
 Installed, Claude Code runs ``agentdiff guard`` on every tool call and at
@@ -47,6 +48,9 @@ def register(subparsers) -> None:
                    help="run the guards over recorded traces (files or folders): what each would have refused, "
                         "in the runs that failed and the runs that passed")
     p.add_argument("--json", action="store_true", help="--replay: the full result as JSON")
+    p.add_argument("--html", default=None, metavar="FILE",
+                   help="--replay: also write the replay as a page: the check guard's outcomes drawn from the runs, "
+                        "each rule an operator could choose with exact intervals, each guard's counts")
     p.add_argument("--check", default="", metavar="CMD", help="the check the agent must run before it finishes")
     p.add_argument("--protect-tests", action="store_true", help="also refuse edits to test files")
     p.add_argument("--no-repeat", action="store_true", help="turn the repeat guard off")
@@ -204,11 +208,20 @@ def _replay(args) -> int:
             skipped += 1
             continue
         if is_ungraded(data):
-            ungraded.add(runs[-1].trace_id)
+            ungraded.add(len(runs) - 1)
     if not runs:
         print("error: no traces found in " + ", ".join(args.replay), file=sys.stderr)
         return 2
     result = replay(runs, enabled=[g for g in _enabled(args) if g != "brief"], check=args.check, ungraded=ungraded)
+    if args.html:
+        from ..guard import replay_variants
+        from ..guardreport import replay_html
+        variants = replay_variants(runs, check=args.check, ungraded=ungraded)
+        out = Path(args.html)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(replay_html(result, variants, sources=list(args.replay)), encoding="utf-8")
+        if not args.json:
+            print(f"wrote {out}")
     if args.json:
         print(json.dumps(result, indent=2))
         return 0
