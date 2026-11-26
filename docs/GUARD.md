@@ -156,13 +156,23 @@ On the recorded real runs here (106 runs: 16 failed, 90 passed):
 
 ### The page, and the rules an operator could choose
 
-`--html FILE` writes the replay as one page, with no script. Its picture
-is the `check` guard's table of outcomes: failed or passed, against sent
-back or let finish. Each cell is filled with its own runs, one small
-strip per run: a mark per tool call (edit, check passed, check failed,
-anything else) and a red rule where the guard steps in. Below it, each
-rule an operator could choose is replayed against the same runs, beside
-the one installed, with exact 95% intervals (`guard.replay_variants`).
+`--html FILE` writes the replay as one page, with no script. It has three
+drawings, each from the replay's own counts:
+- **Every run as a thread.** All the runs leave one bundle, split by
+  their own grade (failed or passed), then by the `check` guard's call
+  (sent back or let finish). A thread is red where the guard steps in,
+  so where the red goes is its catch and its cost.
+- **Every run filed where it went.** The same four outcomes as a table,
+  each cell filled with its runs, one small strip per run: a mark per
+  tool call (edit, check passed, check failed, anything else) and a red
+  rule where the guard steps in.
+- **Each rule an operator could choose, as a point.** Each point is
+  placed by the failing runs it catches (up) against the passing runs it
+  sends back (across), with exact 95% intervals as a cross. The diagonal
+  is a guard that sends runs back at random. The rules are replayed
+  against the same runs, beside the one installed
+  (`guard.replay_variants`).
+
 On the recorded runs here:
 
 | rule | failing runs it steps into | passing runs it sends back |

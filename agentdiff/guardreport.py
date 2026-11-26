@@ -77,6 +77,14 @@ padding:1px 7px;border-radius:3px;margin-left:6px;white-space:nowrap}
 .colh{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:16px;font-size:13px;
 font-weight:700;color:var(--ink2);padding-top:8px}
 .scroll{overflow-x:auto}
+.hero{margin:6px 0 8px}
+.hero svg{display:block;width:100%;height:auto}
+.hero text,.plane text{fill:var(--ink);font-family:Archivo,system-ui,sans-serif}
+.hero text.t{font-weight:800}.hero text.m,.plane text.m{fill:var(--ink2)}
+.hero text,.plane text{paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+.choose{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:clamp(20px,4vw,56px);align-items:start}
+.plane{overflow-x:auto}
+.plane svg{display:block;width:100%;height:auto;min-width:440px}
 table{border-collapse:collapse;width:100%;font-size:14.5px}
 th,td{text-align:left;padding:8px 10px 8px 0;border-bottom:1px solid var(--rule);vertical-align:top}
 th{font-size:13px;color:var(--ink2)}
@@ -85,9 +93,10 @@ code{font-size:13.5px;overflow-wrap:anywhere}
 .notes{columns:2 22em;column-gap:40px;color:var(--ink2);font-size:15px}
 .notes p{margin:0 0 12px;break-inside:avoid}
 footer{color:var(--ink2);font-size:13.5px;border-top:1px solid var(--rule)}
-@media (max-width:640px){.matrix{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.ml{grid-column:1/-1;
+@media (max-width:900px){.choose{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){.hero{display:none}.matrix{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.ml{grid-column:1/-1;
 padding-bottom:4px;border-bottom:0}.corner{display:none}.rule,.colh{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
-.rule .what,.colh .w{grid-column:1/-1}table{font-size:13px}.slips svg{height:16px}}
+.rule .what,.colh .w{grid-column:1/-1}table{font-size:13px}.slips svg{height:16px}.ex{display:none}}
 """
 
 #: how each tool call is drawn: an edit, a check that passed, a check that failed, anything else
@@ -151,6 +160,151 @@ def _key() -> str:
     return f'<div class="key">{"".join(items)}</div>'
 
 
+def _threads(graded: List[dict], guard: str = "check") -> str:
+    """Every run as a thread: from one bundle, split by its own grade, then by the guard's call. A thread is
+    red where the guard steps in. Drawn in a fixed frame that scales with the page; below 640px the matrix of
+    strips carries the same counts instead."""
+    if not graded:
+        return ""
+    W, H, top, bot = 1000, 560, 56, 18
+    x0, x1, x2 = 150, 470, 790
+    avail = H - top - bot
+    order = sorted(graded, key=lambda r: (r["success"] is True, guard not in r["refused"], -len(r.get("path") or "")))
+    n = len(order)
+    groups1 = [r["success"] is True for r in order]
+    groups2 = [(r["success"] is True, guard not in r["refused"]) for r in order]
+
+    def slots(keys, gap):
+        # each run's y in a column whose blocks are its keys, in order, with ``gap`` between blocks
+        k = len(set(keys)) - 1
+        step = (avail - k * gap) / n
+        ys, y, prev = [], top, None
+        for key in keys:
+            if prev is not None and key != prev:
+                y += gap
+            ys.append(y + step / 2)
+            y += step
+            prev = key
+        return ys, step
+
+    y0, s0 = slots([0] * n, 0)
+    y1, s1 = slots(groups1, 40)
+    y2, s2 = slots(groups2, 30)
+    w = max(1.2, min(s0, s1, s2) * 0.62)
+    grey, red = [], []
+    for i, r in enumerate(order):
+        a, b = (x0 + x1) / 2, (x1 + x2) / 2
+        d = (f"M{x0} {y0[i]:.1f}C{a} {y0[i]:.1f} {a} {y1[i]:.1f} {x1} {y1[i]:.1f}"
+             f"C{b} {y1[i]:.1f} {b} {y2[i]:.1f} {x2} {y2[i]:.1f}")
+        hit = guard in r["refused"]
+        if hit:
+            red.append(f'<path d="{d}" stroke="var(--red)" stroke-width="{w:.2f}" fill="none"/>')
+        else:
+            tone = "var(--ink)" if r["success"] is False else "var(--grey)"
+            op = ".75" if r["success"] is False else ".55"
+            grey.append(f'<path d="{d}" stroke="{tone}" stroke-opacity="{op}" stroke-width="{w:.2f}" fill="none"/>')
+
+    def block(x, ys, idx):
+        return (f'<rect x="{x - 3}" y="{ys[idx[0]] - 3:.1f}" width="6" height="{ys[idx[-1]] - ys[idx[0]] + 6:.1f}" '
+                f'fill="var(--ink)"/>')
+    marks, text = [], []
+    marks.append(block(x0, y0, list(range(n))))
+    text.append(f'<text x="{x0 - 16}" y="{(top + H - bot) / 2 - 6:.0f}" text-anchor="end" class="t" font-size="40">'
+                f'{n}</text><text x="{x0 - 16}" y="{(top + H - bot) / 2 + 20:.0f}" text-anchor="end" class="m" '
+                f'font-size="17">runs</text>')
+    for ok, name in ((False, "failed"), (True, "passed")):
+        idx = [i for i, g in enumerate(groups1) if g is ok]
+        if idx:
+            marks.append(block(x1, y1, idx))
+            text.append(f'<text x="{x1}" y="{y1[idx[0]] - 12:.1f}" text-anchor="middle" font-size="18">'
+                        f'<tspan class="t" font-weight="800">{len(idx)}</tspan> {name}</text>')
+    said = {(False, False): "caught", (False, True): "missed", (True, False): "sent back", (True, True): "left alone"}
+    for key in ((False, False), (False, True), (True, False), (True, True)):
+        idx = [i for i, g in enumerate(groups2) if g == key]
+        if not idx:
+            continue
+        marks.append(block(x2, y2, idx))
+        mid = (y2[idx[0]] + y2[idx[-1]]) / 2
+        hit = not key[1]
+        colour = ' style="fill:var(--red)"' if hit else ""
+        text.append(f'<text x="{x2 + 18}" y="{mid + 9:.1f}" font-size="26" class="t"{colour}>{len(idx)}</text>'
+                    f'<text x="{x2 + 18 + 17 * len(str(len(idx))) + 10}" y="{mid + 8:.1f}" font-size="18">'
+                    f'{said[key]}</text>')
+    heads = (f'<text x="{x0}" y="22" text-anchor="middle" class="m" font-size="16">recorded</text>'
+             f'<text x="{x1}" y="22" text-anchor="middle" class="m" font-size="16">graded by their own check</text>'
+             f'<text x="{x2}" y="22" text-anchor="middle" class="m" font-size="16">the {guard} guard</text>')
+    label = (f"{n} runs: {sum(1 for g in groups1 if not g)} failed and {sum(1 for g in groups1 if g)} passed; "
+             f"the {guard} guard sends back the red ones")
+    return (f'<div class="hero"><svg viewBox="0 0 {W} {H}" role="img" aria-label="{escape(label)}">'
+            + "".join(grey) + "".join(red) + "".join(marks) + heads + "".join(text) + "</svg></div>")
+
+
+def _plane(variants: List[dict]) -> str:
+    """Each rule as a point: what it catches among the failing runs (up) against what it costs among the
+    passing (across), with its exact 95% intervals as a cross. The diagonal is a guard that sends runs back
+    at random: it catches failing runs at the rate it costs passing ones."""
+    W, H = 560, 440
+    L, R, T, B = 70, 530, 24, 380
+
+    def X(v):
+        return L + (R - L) * v
+
+    def Y(v):
+        return B - (B - T) * v
+    frame = out = [f'<rect x="{L}" y="{T}" width="{R - L}" height="{B - T}" fill="var(--soft)"/>']
+    for t in (0, .25, .5, .75, 1):
+        out.append(f'<line x1="{L}" x2="{R}" y1="{Y(t):.1f}" y2="{Y(t):.1f}" stroke="var(--bg)" stroke-width="1.5"/>'
+                   f'<line y1="{T}" y2="{B}" x1="{X(t):.1f}" x2="{X(t):.1f}" stroke="var(--bg)" stroke-width="1.5"/>'
+                   f'<text x="{L - 10}" y="{Y(t) + 5:.1f}" text-anchor="end" class="m" font-size="14">{t:.0%}</text>'
+                   f'<text x="{X(t):.1f}" y="{B + 22}" text-anchor="middle" class="m" font-size="14">{t:.0%}</text>')
+    out.append(f'<line x1="{X(0)}" y1="{Y(0)}" x2="{X(1)}" y2="{Y(1)}" stroke="var(--ink2)" stroke-dasharray="5 5"/>'
+               f'<text x="{X(.5):.1f}" y="{Y(.2):.1f}" class="m" font-size="14">the diagonal: sending runs back</text>'
+               f'<text x="{X(.5):.1f}" y="{Y(.2) + 18:.1f}" class="m" font-size="14">at random, as often from either</text>')
+    out.append(f'<text x="{X(0) + 10}" y="{Y(1) + 20}" class="m" font-size="14">catches every failure, '
+               f'sends back no pass</text>')
+    out.append(f'<text x="{(L + R) / 2}" y="{H - 8}" text-anchor="middle" font-size="15">passing runs it sends back '
+               f'→</text><text transform="translate(18 {(T + B) / 2}) rotate(-90)" text-anchor="middle" '
+               f'font-size="15">failing runs it steps into →</text>')
+    # rules that land on the same point are one point with one label
+    points: dict = {}
+    for v in variants:
+        if not v["failed"] or not v["passed"]:
+            continue
+        key = (v["in_failed"], v["in_passed"])
+        points.setdefault(key, []).append(v)
+    crosses, dots = [], []
+    for (kf, kp), vs in points.items():
+        v = vs[0]
+        cx, cy = X(kp / v["passed"]), Y(kf / v["failed"])
+        cc, kc = v.get("catch_ci") or [kf / v["failed"]] * 2, v.get("cost_ci") or [kp / v["passed"]] * 2
+        inst = any(x["installed"] for x in vs if x["guard"] == "check")
+        colour = "var(--red)" if inst else "var(--ink)"
+        # the intervals sit under every point and label, so no cross runs through another rule's name
+        crosses.append(f'<g stroke="{colour}" stroke-opacity=".45" stroke-width="2"><line x1="{X(kc[0]):.1f}" '
+                       f'x2="{X(kc[1]):.1f}" y1="{cy:.1f}" y2="{cy:.1f}"/><line x1="{cx:.1f}" x2="{cx:.1f}" '
+                       f'y1="{Y(cc[0]):.1f}" y2="{Y(cc[1]):.1f}"/></g>')
+        out = dots
+        out.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="7" fill="{colour}" stroke="var(--bg)" stroke-width="3"/>')
+        guards = sorted({x["guard"] for x in vs})
+        if guards == ["repeat"] and len(vs) > 1:
+            name = "repeat, at every threshold"
+        elif v["guard"] == "check":
+            name = ("check, installed" if inst else
+                    "unchecked edits only" if "only" in v["rule"] and "edits" in v["rule"] else "failing check only")
+        else:
+            name = v["guard"] + (", installed" if v["installed"] else "")
+        tip = "; ".join(f'{x["guard"]}: {x["rule"]}' for x in vs)
+        # the name starts past the rule's own interval across, clear of its neighbours' upright ones
+        anchor, dx = (("start", max(14.0, X(kc[1]) - cx + 8)) if cx < X(.6) else
+                      ("end", -max(14.0, cx - X(kc[0]) + 8)))
+        out.append(f'<text x="{cx + dx:.1f}" y="{cy - 10:.1f}" text-anchor="{anchor}" font-size="15" '
+                   f'font-weight="700"><title>{escape(tip)}</title>{escape(name)}</text>'
+                   f'<text x="{cx + dx:.1f}" y="{cy + 9:.1f}" text-anchor="{anchor}" class="m" font-size="13.5">'
+                   f'{kf} of {v["failed"]} · {kp} of {v["passed"]}</text>')
+    return (f'<div class="plane"><svg viewBox="0 0 {W} {H}" role="img" aria-label="each rule\'s catch against '
+            f'its cost, with exact intervals">' + "".join(frame) + "".join(crosses) + "".join(dots) + "</svg></div>")
+
+
 def replay_html(result: dict, variants: Optional[List[dict]] = None, sources: Optional[List[str]] = None,
                 title: str = "Guard replay", label: str = "recorded") -> str:
     """The page for one replay (:func:`agentdiff.guard.replay`), with its rule variants when given.
@@ -189,6 +343,8 @@ def replay_html(result: dict, variants: Optional[List[dict]] = None, sources: Op
                for k in ("unchecked", "failing")}
         no_edit = sum(1 for r in cells[(False, False)] if "e" not in (r.get("path") or ""))
         matrix = (
+            '<h2 style="margin-top:34px">Every run, filed where it went</h2><p class="lede">One strip a run, a mark per '
+            'tool call. The red rule is where the guard steps in; at the end of a strip, it sends the finish back.</p>'
             '<div class="matrix"><div class="mh corner"></div>'
             '<div class="mh red">Sent back to check</div><div class="mh">Let finish</div>'
             f'<div class="ml">Failed<small>{f} runs</small></div>'
@@ -209,11 +365,12 @@ def replay_html(result: dict, variants: Optional[List[dict]] = None, sources: Op
                         f'</small></div><div>{_bar("c", v["in_failed"], v["failed"], v.get("catch_ci"))}</div>'
                         f'<div>{_bar("k", v["in_passed"], v["passed"], v.get("cost_ci"))}</div></div>')
         rules = ('<section class="band"><div class="wrap"><h2>Each rule an operator could choose, against the '
-                 'same runs</h2><p class="lede">Red is what a rule catches among the failing runs, grey what it costs '
-                 'among the passing. The black line is the exact 95% interval: with this many runs, the rate '
-                 'could be anywhere along it.</p><div class="colh"><span class="w">rule</span><span>failing runs it '
+                 'same runs</h2><p class="lede">A rule is worth its place by how far it sits above the diagonal: up is '
+                 'failing runs caught, across is passing runs sent back. The crosses and the black lines are exact 95% '
+                 'intervals; with this many runs, a rate could be anywhere along them.</p><div class="choose">'
+                 + _plane(variants) + '<div><div class="colh"><span class="w">rule</span><span>failing runs it '
                  'steps into</span><span>passing runs it sends back</span></div><div class="rules">'
-                 + "".join(rows) + "</div></div></section>")
+                 + "".join(rows) + "</div></div></div></div></section>")
 
     trs = []
     for name, row in guards.items():
@@ -223,10 +380,10 @@ def replay_html(result: dict, variants: Optional[List[dict]] = None, sources: Op
         trs.append(f'<tr><td><b>{e(name)}</b></td><td class="num">{scope}</td>'
                    f'<td class="num">{row["in_failed"]} of {row["failed"]}</td>'
                    f'<td class="num">{row["in_passed"]} of {row["passed"]}</td>'
-                   f'<td class="num">{row.get("in_ungraded", 0)}</td><td>{ex}</td></tr>')
+                   f'<td class="num">{row.get("in_ungraded", 0)}</td><td class="ex">{ex}</td></tr>')
     table = ('<section class="band"><div class="wrap"><h2>Each guard, counted</h2><div class="scroll"><table>'
              '<tr><th>guard</th><th>runs read</th><th>failing it steps into</th><th>passing it sends back</th>'
-             '<th>ungraded</th><th>first runs it steps into</th></tr>' + "".join(trs) + "</table></div></div></section>")
+             '<th>ungraded</th><th class="ex">first runs it steps into</th></tr>' + "".join(trs) + "</table></div></div></section>")
 
     src = ", ".join(f"<code>{e(s)}</code>" for s in (sources or []))
     notes = (
@@ -249,7 +406,7 @@ def replay_html(result: dict, variants: Optional[List[dict]] = None, sources: Op
         '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..800'
         f'&display=swap"><style>{_CSS}</style></head><body>'
         f'<header class="band top"><div class="wrap"><h1>{e(head)}</h1><p class="lede">{e(lede)}</p>'
-        f'<div class="figs">{"".join(figs)}</div>{matrix}</div></header>'
+        f'<div class="figs">{"".join(figs)}</div>{_threads(graded) if check else ""}{matrix}</div></header>'
         f"{rules}{table}{notes}"
         f'<footer class="band"><div class="wrap">Made by <code>agentdiff guard --replay</code>'
         + (f" from {src}" if src else "") + ". No script; every number is a count of the runs above."

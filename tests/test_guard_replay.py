@@ -199,7 +199,9 @@ class PageTest(unittest.TestCase):
                 run("c__<odd>&name", True, [edit("/w/a.py")])]
         page = replay_html(replay(runs, enabled=("repeat", "check")), replay_variants(runs), sources=["runs/"])
         self.assertIn("The check guard steps into 1 of 1 failing runs, and 1 of 2 that passed", page)
-        self.assertEqual(page.count("<svg viewBox"), 3 + 5, "one strip a run, and the key's five marks")
+        self.assertEqual(page.count("<svg viewBox"), 3 + 5 + 2, "one strip a run, the key's five marks, the threads "
+                                                               "and the plane")
+        self.assertEqual(page.count('stroke="var(--red)" stroke-width'), 2, "a red thread for each run sent back")
         self.assertNotIn("<script", page.lower())
         self.assertNotIn("<odd>", page, "a trace name is text, never markup")
         self.assertIn("c__&lt;odd&gt;&amp;name", page)
