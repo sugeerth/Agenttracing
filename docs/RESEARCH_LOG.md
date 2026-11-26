@@ -4,6 +4,64 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-26
+
+**How it was read.** The Flakebait repository's README and first report
+were read directly. arxiv.org could not be reached, so the papers below
+are known from search extracts.
+
+**Read:**
+- Flaky tests and masking: *Flakebait* (do coding agents recognize flaky
+  tests?), a study plan with a pilot.
+  - Flaky tests from ReproFlake (1,115 reproducible Java tests), made to
+    fail with probability 0.5 after the agent's first edit.
+  - Responses are sorted into a root-cause fix, left alone and reported,
+    left alone unreported, masked (a retry, a skip marker, a deletion, a
+    weakened assertion, an inflated timeout), or damaging.
+  - The pilot saw the flaky test 1 of 9 times when it sat in another
+    class and 8 of 9 in the same class; controls were solved 16 of 18.
+    Its main results were not yet published.
+- Graders and history: DeepSWE (each verifier run three times while the
+  task is written, varying ones sent back), ProdCodeBench and REAP
+  (multi-run stability filters), and Anthropic's notes on agent evals
+  (git history from earlier trials, and state shared between runs that
+  makes failures correlate).
+- Self-evolving harnesses: *Self-Evolving Agent Harness* (arXiv
+  2610.18813; a held-out split reused during the search loses the
+  independence its check assumes, so admission needs fresh samples),
+  RRSI (arXiv 2609.24972), *Hierarchical Self-Improvement* (arXiv
+  2608.08466), and Self-Harness again.
+- Tracing: *When Tool Calls Succeed but Workflows Fail* (arXiv
+  2609.15397; anomalies at the agent-tool boundary, title and extract
+  only), ExecWeave (arXiv 2610.21146; cross-layer execution provenance),
+  and a survey of evidence tracing (arXiv 2606.04990).
+
+**Taken: nothing.** Measured before deciding:
+- **Masking a failing check.** Across all 1,165 recorded traces under
+  `demo/`, no command deselects a test (`-k "not …"`, `--deselect`,
+  `--ignore`). No edit adds a skip or xfail marker, a constant-true
+  assertion, or a timeout of 100 or more. A detector could be shown only
+  on data written for it, the bar that was not met on 2026-11-11 and
+  2026-11-24.
+- **Failures that cluster by run order** (shared state between runs).
+  The real run sets have at most 3 runs a task, and 2 tasks have both
+  outcomes. A test of order cannot show anything on them. The 5-run
+  groups under `demo/evolve/lineage` are synthetic.
+- **A held-out split reused during the search.** `self-evolve
+  --holdout` scores the held-out tasks once, after the evolution, never
+  while choosing. That is what 2610.18813 asks, so nothing changes.
+
+**Not taken, and why:**
+- **A masking detector.** It has no recorded occurrence, and
+  `--protect-tests` already refuses edits to the project's tests, the
+  route most masking takes.
+- **Verifier stability across repeated runs** (DeepSWE, REAP).
+  `--from-git` tasks already check the reference fix and the untouched
+  workspace, and graders' agreement with themselves has been checked
+  since 2026-10-16.
+- **Cross-layer provenance** (ExecWeave). It instruments the runtime;
+  AgentDiff reads the traces a run leaves.
+
 ## 2026-11-25, requested, second
 
 **Read:** nothing new. This was a requested build on run 44's replay.
