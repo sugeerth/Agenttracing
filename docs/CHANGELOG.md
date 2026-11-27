@@ -5,6 +5,24 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The lag, split: verifying, then wrapping up
+
+`agentdiff lag` now finds the step where the run's own check first
+passed after its code was right, with no project edit after it
+(`confirmed`). It splits the lag at that step into `verify` (from the
+fix to that check) and `wrapup` (everything after it). On the page,
+steps after the run's own passing check are drawn faded.
+
+Recorded, on the 62 rebuilt passing runs:
+- **Saw their own check pass:** 33.
+- **Verifying:** a median 2 steps from the fix to that check.
+- **Wrapping up:** a median 1 step after it, 9% of their tokens on
+  average.
+
+A `done` hint was measured and not built. Replayed over 94 real runs, it
+would fire in 52 of 84 passing runs and 0 of 10 failing ones, and could
+cut one step and 8% of the tokens overall.
+
 ## Termination lag, test by test, and drawn (`agentdiff lag --html`)
 
 Each grade in `agentdiff lag` now also reads the test runner's own

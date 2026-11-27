@@ -188,6 +188,27 @@ def _kinds(steps) -> Dict[str, int]:
     return out
 
 
+def _confirmed(traj, first: Optional[int]) -> Optional[int]:
+    """The step at which the run itself saw that its code was right: the first check after the code first
+    passed that passed, with no edit to the project after it. None when the run never ran one."""
+    from .gittasks import _tool_input
+    from .guard import failed_output
+    if first is None:
+        return None
+    seen = None
+    for s in traj.steps:
+        if s.index <= first or s.type != "tool_call":
+            continue
+        kind = _kind(s)
+        if kind == "edit" and _WORK.match(str(_tool_input(s.input).get("file_path") or "")):
+            seen = None  # the project changed after it: that check no longer speaks for the code
+        elif kind == "check" and seen is None:
+            failed = s.error if isinstance(s.error, bool) else failed_output(str(s.output or ""))
+            if failed is False:
+                seen = s.index
+    return seen
+
+
 def termination_lag(traj, record: dict, root: Path) -> dict:
     """One run, rebuilt and graded edit by edit (see the module's text). ``record`` is the harness's record of
     the run: its check command, its graded outcome, and the hash of each file it changed at the end."""
@@ -232,6 +253,9 @@ def termination_lag(traj, record: dict, root: Path) -> dict:
     tokens_all = sum(s.tokens or 0 for s in traj.steps)
     lag = (len(traj.steps) - 1 - first) if first is not None else None
     after = _kinds([st for st in traj.steps if first is not None and st.index > first])
+    confirmed = _confirmed(traj, first)
+    wrapup = [st for st in traj.steps if confirmed is not None and st.index > confirmed]
+    tok_wrap = sum(st.tokens or 0 for st in wrapup)
     return dict(out, rebuilt=True, edits=len(graded), graded=[ok for _, ok in graded], first_correct=first, after=after,
                 tests=tests, tests_total=total, start=round(base[1] / total, 4) if total and base[1] else 0.0,
                 progress=progress, broke=broke, path=[_kind(st) for st in traj.steps],
@@ -240,7 +264,11 @@ def termination_lag(traj, record: dict, root: Path) -> dict:
                 lag_share=round(lag / len(traj.steps), 4) if lag is not None else None,
                 tokens_after=tokens_after if first is not None else None,
                 tokens_after_share=round(tokens_after / tokens_all, 4) if first is not None and tokens_all else None,
-                edits_after=sum(1 for step, _ in graded if first is not None and step > first))
+                edits_after=sum(1 for step, _ in graded if first is not None and step > first),
+                confirmed=confirmed,
+                verify=(confirmed - first) if confirmed is not None and first is not None else None,
+                wrapup=len(wrapup) if confirmed is not None else None,
+                wrapup_tokens_share=round(tok_wrap / tokens_all, 4) if confirmed is not None and tokens_all else None)
 
 
 def lag_over(paths: Sequence, root: Optional[Path] = None, exclude: Sequence[str] = ("stand-in",)) -> dict:
@@ -281,6 +309,11 @@ def lag_over(paths: Sequence, root: Optional[Path] = None, exclude: Sequence[str
            "median_tokens_after_share": statistics.median(tok) if tok else None,
            "edits_after_correct": sum(r["edits_after"] for r in passed),
            "after_correct": {k: sum(r["after"][k] for r in passed) for k in KINDS},
+           "confirmed": sum(1 for r in passed if r["confirmed"] is not None),
+           "median_verify": statistics.median([r["verify"] for r in passed if r["verify"] is not None] or [0]),
+           "median_wrapup": statistics.median([r["wrapup"] for r in passed if r["wrapup"] is not None] or [0]),
+           "wrapup_tokens_share": (lambda xs: round(sum(xs) / len(xs), 4) if xs else None)(
+               [r["wrapup_tokens_share"] for r in passed if r["wrapup_tokens_share"] is not None]),
            "per_run": runs}
     out["says"] = lag_says(out)
     return out
@@ -303,6 +336,10 @@ def lag_says(r: dict) -> List[str]:
     total = sum(a.values())
     if total:
         lines.append(f"those {total} step(s) after the fix: " + ", ".join(f"{a[k]} {k}" for k in KINDS if a[k]))
+    if r.get("confirmed"):
+        lines.append(f"{r['confirmed']} of {r['passed']} passing runs then saw a check of their own pass: a median "
+                     f"{r['median_verify']:g} step(s) from the fix to that check, then {r['median_wrapup']:g} to the "
+                     f"end ({r['wrapup_tokens_share']:.0%} of their tokens, on average, came after it)")
     lines.append(f"{r['undone']} of {r['graded']} run(s) had a passing fix and ended failing"
                  + (f": {', '.join(r['undone_runs'][:3])}" if r["undone"] else ""))
     return lines

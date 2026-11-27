@@ -35,7 +35,7 @@ padding-right:max(5vw,16px,env(safe-area-inset-right,0px))}
 h1{font-size:clamp(30px,4.4vw,50px);line-height:1.05;letter-spacing:-.02em;font-weight:800;margin:0 0 12px;max-width:21em}
 h2{font-size:clamp(20px,2.4vw,26px);line-height:1.15;margin:0 0 6px;font-weight:800}
 .lede{color:var(--ink2);margin:0 0 22px;max-width:66ch;font-size:17px}
-.figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(10.5em,1fr));gap:0 24px;border-top:1px solid var(--ink);
+.figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(8.6em,1fr));gap:0 20px;border-top:1px solid var(--ink);
 margin-bottom:26px}
 .fig1{padding:12px 0 14px;border-bottom:1px solid var(--rule)}
 .fig1 b{display:block;font-size:clamp(28px,3.4vw,40px);font-weight:800;line-height:1;letter-spacing:-.02em;white-space:nowrap}
@@ -51,6 +51,7 @@ margin-bottom:26px}
 .k-before{background:var(--ink)}.k-check{background:var(--red)}.k-edit{background:var(--grey)}
 .k-read,.k-other{background:var(--pale)}.k-text{background:var(--soft);outline:1px solid var(--pale);outline-offset:-1px}
 .fixmark{box-shadow:-3px 0 0 var(--bg),-4px 0 0 var(--red)}
+.row .bar i.wrap{opacity:.28}
 .key{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13.5px;color:var(--ink2);margin:14px 0 0}
 .key i{display:inline-block;width:14px;height:10px;margin-right:6px;vertical-align:0}
 .multi{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px 22px;margin-top:14px}
@@ -71,12 +72,13 @@ _CLS = {"check": "k-check", "edit": "k-edit", "read": "k-read", "other tool": "k
 def _row(r: dict) -> str:
     """One passing run: its steps in order, ink up to and including the edit that made the code pass, then
     each later step coloured by its kind."""
-    path, first = r.get("path") or [], r["first_correct"]
+    path, first, conf = r.get("path") or [], r["first_correct"], r.get("confirmed")
     cells = []
     for i, kind in enumerate(path):
         cls = "k-before" if i <= first else _CLS.get(kind, "k-other")
         mark = " fixmark" if i == first + 1 else ""
-        cells.append(f'<i class="{cls}{mark}"></i>')
+        wrap = " wrap" if conf is not None and i > conf else ""
+        cells.append(f'<i class="{cls}{mark}{wrap}"></i>')
     tip = (f"{r['trace']}: {len(path)} steps; the code first passed at step {first}; {r['lag']} step(s) after "
            f"({r['lag_share']:.0%})")
     return (f'<div class="row" title="{escape(tip)}"><span class="n">{escape(r["trace"])}</span>'
@@ -127,6 +129,9 @@ def lag_html(result: dict, sources: Sequence[str] = (), title: str = "Terminatio
         (f'{result["median_tokens_after_share"]:.0%}' if result["median_tokens_after_share"] is not None else "–",
          "of its tokens, median", False),
         (f'{never}<small> of {len(passed)}</small>', "never checked after the code was right", False),
+        (f'{result.get("median_wrapup", 0):g}<small> step</small>' if result.get("confirmed") else "–",
+         f"after the run's own check passed, median ({result.get('confirmed', 0)} of {len(passed)} runs saw one)",
+         False),
         (f'{result["undone"]}<small> of {result["graded"]}</small>', "had a passing fix and lost it", False)]
     tiles = "".join(f'<div class="fig1"><b{" class=red" if red else ""}>{v}</b><span>{e(t)}</span></div>'
                     for v, t, red in figs)
@@ -141,7 +146,8 @@ def lag_html(result: dict, sources: Sequence[str] = (), title: str = "Terminatio
     key = ('<div class="key"><span><i class="k-before"></i>up to the edit that made the code pass</span>'
            '<span><i class="k-check"></i>a check after it</span><span><i class="k-edit"></i>an edit</span>'
            '<span><i class="k-read"></i>a read or other tool</span><span><i class="k-text"></i>text: '
-           'reasoning, the answer</span></div>')
+           'reasoning, the answer</span><span><i class="k-check" style="opacity:.28"></i>faded: after the run\'s '
+           'own check passed</span></div>')
     by: dict = {}
     for r in ok:
         by.setdefault(r["task"], []).append(r)
@@ -164,7 +170,8 @@ def lag_html(result: dict, sources: Sequence[str] = (), title: str = "Terminatio
         f'<div class="figs">{tiles}</div>'
         f'<h2>Every passing run, before and after its fix</h2><p class="lede">One row a run, one cell a step. Ink '
         f'is the run up to the edit after which the held-out check first passed; what follows is coloured by what '
-        f'it was. Sorted by the share of the run after the fix.</p><div class="rows">{rows}</div>{key}'
+        f'it was, and faded once a check of the run\'s own had passed. Most of the lag is that verifying; little '
+        f'comes after it. Sorted by the share of the run after the fix.</p><div class="rows">{rows}</div>{key}'
         f'</div></header>'
         f'<section class="band"><div class="wrap"><h2>How far each run had got, edit by edit</h2><p class="lede">'
         f'The share of the task\'s held-out tests passing, from the untouched workspace (left) after every edit to '

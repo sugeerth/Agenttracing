@@ -65,6 +65,31 @@ checked after that point, so nothing in their run showed them they were
 right. That is the
 pattern in `FINDINGS.md` §1.
 
+## Verifying, then wrapping up
+
+The lag splits in two at the point where the run's own check passed,
+with no edit to the project after it:
+- **verifying:** from the edit that made the code pass to that check;
+- **wrapping up:** everything after that check.
+
+| | |
+|---|---|
+| passing runs that saw a check of their own pass | 33 of 62 |
+| from the fix to that check, median | 2 steps |
+| after it, median | **1 step** (the answer), 9% of their tokens on average |
+
+Agents here stop almost as soon as their own check passes. The lag is
+the verifying, not dawdling after it.
+
+That decided against a fifth guard, `done`. It would have added "your
+check passed after your last edit: finish" as context.
+- **Replayed over all 94 real runs:** it would fire in 52 of 84 passing
+  runs and none of the 10 failing ones.
+- **What it could save:** the median wrap-up it could cut is one step,
+  8% of the tokens overall.
+
+That is too little to add a voice to every session.
+
 ## Test by test: how far each run had got
 
 Each grade also reads the test runner's own summary: unittest's `Ran N

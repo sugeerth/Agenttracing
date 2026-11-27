@@ -98,6 +98,8 @@ class RunTest(unittest.TestCase):
         self.assertEqual(got["lag"], 3, "steps 3, 4 and the answer came after the fix")
         self.assertEqual(got["after"]["check"], 1)
         self.assertEqual(got["path"], ["read", "edit", "edit", "check", "text", "text"])
+        self.assertEqual((got["confirmed"], got["verify"], got["wrapup"]), (3, 1, 2),
+                         "its own check passed at step 3, one step after the fix; two steps followed")
         self.assertEqual(got["broke"], 0)
 
     def test_progress_test_by_test(self):
@@ -144,6 +146,7 @@ class RecordedTest(unittest.TestCase):
         self.assertEqual((got["runs"], got["rebuilt"], got["graded"]), (70, 68, 66))
         self.assertEqual((got["passed"], got["first_edit_correct"], got["undone"]), (62, 54, 0))
         self.assertEqual(got["median_lag"], 3)
+        self.assertEqual((got["confirmed"], got["median_verify"], got["median_wrapup"]), (33, 2, 1))
         self.assertEqual(got["excluded"], 12, "the scripted stand-in's runs")
         self.assertTrue(all("globmatch" in r["trace"] for r in got["set_aside"]))
 
