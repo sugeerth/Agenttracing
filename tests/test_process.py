@@ -205,6 +205,28 @@ class TestRecovery(unittest.TestCase):
     def test_recovery_rate_is_none_rather_than_one_when_there_were_no_errors(self):
         self.assertIsNone(recovery(build([{"name": "s", "output": "ok"}]))["recovery_rate"])
 
+    def test_what_a_recovery_cost(self):
+        """Every step after the failing call up to and including the one that worked; each test step logs 1 token
+        and 0.1 s. Here 3 steps (a read, a retry that fails again, the fix), 2 of them calls to the failing tool."""
+        run = build([{"name": "s", "input": "s(q='x')", "output": "Error: bad query"},
+                     {"type": "reason", "name": "think", "input": "", "output": "try y"},
+                     {"name": "s", "input": "s(q='z')", "output": "Error: still bad"},
+                     {"name": "s", "input": "s(q='y')", "output": "ok"},
+                     {"name": "other", "input": "o()", "output": "done"}])
+        report = recovery(run)
+        first = report["error_steps"][0]
+        self.assertEqual(first["outcome"], "recovered")
+        self.assertEqual(first["cost"], {"steps": 3, "tool_steps": 2, "tokens": 3, "seconds": 0.3})
+        rc = report["recovery_cost"]
+        self.assertEqual(rc["recovered"], 2, "the second error recovered too, one step later")
+        self.assertEqual(rc["median_tool_steps"], 1.5)
+        self.assertEqual((rc["tokens"], rc["share_of_tokens"]), (4, round(4 / 6, 4)))
+        self.assertNotIn("cost", recovery(build([{"name": "s", "input": "s()", "output": "Error: x"}]))["error_steps"][0])
+
+    def test_no_recovery_no_cost(self):
+        rc = recovery(build([{"name": "s", "output": "ok"}]))["recovery_cost"]
+        self.assertEqual((rc["recovered"], rc["median_tool_steps"], rc["tokens"]), (0, None, 0))
+
 
 class TestGrounding(unittest.TestCase):
     def test_a_call_to_an_undeclared_tool_is_flagged(self):

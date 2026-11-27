@@ -10,7 +10,8 @@ it does: `fix` (default), `break`, `idle`, `careless` (a first edit that is
 wrong, then "done" without a check, unless the harness's appended system
 prompt tells it to run the check: then it checks, sees the failure and
 fixes it; for the self-evolving harness). FAKE_VENDOR_SLOW adds a delay
-per message (for budget tests).
+per message (for budget tests). FAKE_VENDOR_GIT, a shell command, is run
+first and recorded as a Bash call, as an agent looking at git would.
 """
 import json
 import os
@@ -70,6 +71,9 @@ def main():
     def read(path):
         return lambda: (open(os.path.join(cwd, path)).read(), False)
 
+    if os.environ.get("FAKE_VENDOR_GIT"):
+        look = os.environ["FAKE_VENDOR_GIT"]
+        call("Bash", {"command": look}, bash(look), text="Let me look at the history first.")
     if mode == "careless":
         told = ""
         if "--append-system-prompt" in args:

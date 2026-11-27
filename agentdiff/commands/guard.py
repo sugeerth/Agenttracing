@@ -3,13 +3,20 @@
     agentdiff guard --install                      in a project: guard every Claude Code session here
     agentdiff guard --install --check "pytest -q"  name the check the agent must run before it finishes
     agentdiff guard --install --protect-tests      also refuse edits to test files
+    agentdiff guard --install --no-brief           no session brief at start
     agentdiff guard --status                       what the guards refused, by guard
+    agentdiff guard --replay traces/               before installing: what they would have refused in runs
+                                                   already recorded, among the failing runs and the passing
+    agentdiff guard --replay traces/ --html out.html   the same, as a page: every run drawn, each rule compared
     agentdiff guard --uninstall                    take them out again
 
 Installed, Claude Code runs ``agentdiff guard`` on every tool call and at
 every stop (hooks in ``.claude/settings.local.json``, which git ignores).
 It refuses a failing command run again with nothing changed, and keeps
-the agent working when it changed files after its last check. With
+the agent working when it changed files after its last check. Each session
+starts with a brief: the command that checks this project (``--check``, or
+the one its own files name) and what the guards refused in earlier sessions
+here. With
 ``--traces`` (the default when installing) every session is also traced
 into ``.agentdiff/traces``, so ``agentdiff hub`` shows it live: its loop,
 its code, where to look. See :mod:`agentdiff.guard`.
@@ -37,10 +44,19 @@ def register(subparsers) -> None:
     p.add_argument("--install", action="store_true", help="add the hooks to .claude/settings.local.json here")
     p.add_argument("--uninstall", action="store_true", help="remove them")
     p.add_argument("--status", action="store_true", help="what the guards refused, by guard")
+    p.add_argument("--replay", nargs="+", default=None, metavar="DIR",
+                   help="run the guards over recorded traces (files or folders): what each would have refused, "
+                        "in the runs that failed and the runs that passed")
+    p.add_argument("--json", action="store_true", help="--replay: the full result as JSON")
+    p.add_argument("--html", default=None, metavar="FILE",
+                   help="--replay: also write the replay as a page: the check guard's outcomes drawn from the runs, "
+                        "each rule an operator could choose with exact intervals, each guard's counts")
     p.add_argument("--check", default="", metavar="CMD", help="the check the agent must run before it finishes")
     p.add_argument("--protect-tests", action="store_true", help="also refuse edits to test files")
     p.add_argument("--no-repeat", action="store_true", help="turn the repeat guard off")
     p.add_argument("--no-check-guard", action="store_true", help="turn the check-before-finishing guard off")
+    p.add_argument("--no-brief", action="store_true",
+                   help="no brief at session start (the project's check, what earlier sessions here were refused)")
     p.add_argument("--max-stop-blocks", type=int, default=2, help="times a stop may be refused per session (default 2)")
     p.add_argument("--traces", default=None, metavar="DIR",
                    help="also trace each session into DIR (installed default: .agentdiff/traces)")
@@ -57,6 +73,8 @@ def _enabled(args) -> tuple:
         on.append("check")
     if args.protect_tests:
         on.append("tests")
+    if not args.no_brief:
+        on.append("brief")
     return tuple(on)
 
 
@@ -72,6 +90,8 @@ def _command(args, traces: str) -> str:
         parts.append("--no-repeat")
     if args.no_check_guard:
         parts.append("--no-check-guard")
+    if args.no_brief:
+        parts.append("--no-brief")
     if args.max_stop_blocks != 2:
         parts += ["--max-stop-blocks", str(args.max_stop_blocks)]
     if traces:
@@ -86,7 +106,7 @@ def _ours(entry: dict) -> bool:
     return any(MARK in str(h.get("command", "")) for h in entry.get("hooks") or [])
 
 
-def install(project: Path, command: str, traced: bool = True) -> Path:
+def install(project: Path, command: str, traced: bool = True, brief: bool = True) -> Path:
     path = project / SETTINGS
     data = {}
     if path.is_file():
@@ -98,6 +118,8 @@ def install(project: Path, command: str, traced: bool = True) -> Path:
               "Stop": {"hooks": [hook]}}
     if traced:
         wanted["UserPromptSubmit"] = {"hooks": [hook]}  # the trace's prompt
+    if brief:
+        wanted["SessionStart"] = {"hooks": [hook]}  # the brief: the project's check, what earlier sessions hit
     for event, entry in wanted.items():
         kept = [e for e in hooks.get(event) or [] if not _ours(e)]
         hooks[event] = kept + [entry]
@@ -131,12 +153,16 @@ def run(args: argparse.Namespace) -> int:
     if args.install:
         traces = None if args.no_traces else (args.traces or str(project / ".agentdiff" / "traces"))
         try:
-            path = install(project, _command(args, traces), traced=bool(traces))
+            path = install(project, _command(args, traces), traced=bool(traces), brief=not args.no_brief)
         except (OSError, ValueError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         print(f"guarding Claude Code in {project}: hooks in {path}")
-        print(f"  on: {', '.join(_enabled(args))}" + (f"; check: {args.check}" if args.check else ""))
+        from ..guard import detect_check
+        found = None if args.check else detect_check(project)
+        print(f"  on: {', '.join(_enabled(args))}" + (f"; check: {args.check}" if args.check else
+                                                    f"; check: {found['command']} ({found['from']} names it)" if found
+                                                    else "; check: none found here, name one with --check"))
         if traces:
             print(f"  every session traced to {traces}; see it live: agentdiff hub {project}")
         print("  off again: agentdiff guard --uninstall")
@@ -149,6 +175,8 @@ def run(args: argparse.Namespace) -> int:
             return 2
         print("guards removed" if gone else "no guards were installed here")
         return 0
+    if args.replay:
+        return _replay(args)
     if args.status:
         from ..guard import summary
         s = summary(project)
@@ -161,6 +189,52 @@ def run(args: argparse.Namespace) -> int:
             print(f"  [{r.get('guard')}] {r.get('reason')}")
         return 0
     return _hook(args, project)
+
+
+def _replay(args) -> int:
+    """The guards over recorded runs, read and printed; nothing is written."""
+    from ..guard import is_ungraded, replay
+    from ..trace import Trajectory
+    files = []
+    for given in args.replay:
+        path = Path(given)
+        files += sorted(path.rglob("*.json")) if path.is_dir() else [path]
+    runs, skipped, ungraded = [], 0, set()
+    for f in files:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            runs.append(Trajectory.from_json(data))
+        except Exception:  # noqa: BLE001 — not a trace: a report, a config, a broken file
+            skipped += 1
+            continue
+        if is_ungraded(data):
+            ungraded.add(len(runs) - 1)
+    if not runs:
+        print("error: no traces found in " + ", ".join(args.replay), file=sys.stderr)
+        return 2
+    result = replay(runs, enabled=[g for g in _enabled(args) if g != "brief"], check=args.check, ungraded=ungraded)
+    if args.html:
+        from ..guard import replay_variants
+        from ..guardreport import replay_html
+        variants = replay_variants(runs, check=args.check, ungraded=ungraded)
+        out = Path(args.html)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(replay_html(result, variants, sources=list(args.replay)), encoding="utf-8")
+        if not args.json:
+            print(f"wrote {out}")
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    print(f"{result['runs']} recorded run(s): {result['failed']} failed, {result['passed']} passed"
+          + (f", {result['ungraded']} ungraded" if result["ungraded"] else "")
+          + (f"; {skipped} file(s) were not traces" if skipped else ""))
+    for line, (guard, row) in zip(result["says"], result["guards"].items()):
+        print("  " + line)
+        for ex in row["examples"][:3]:
+            where = "at its finish" if ex["step"] == "finish" else f"at step {ex['step']} ({ex['call'][:70]})"
+            print(f"      {ex['trace']}: {where}")
+    print("  where a guard would have stepped in, not what the agent would have done after it")
+    return 0
 
 
 def _grade(path: Path, root: Path, payload: dict) -> None:

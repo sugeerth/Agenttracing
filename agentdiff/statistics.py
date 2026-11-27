@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import random
+from functools import lru_cache
 from typing import Optional, Sequence
 from . import sections as _sections
 
@@ -68,6 +69,104 @@ def pass_at_k(successes: int, runs: int, k: int) -> Optional[float]:
     for i in range(k):
         probability *= (successes - i) / (runs - i)
     return round(probability, 4)
+
+
+def exact_interval(successes: int, trials: int, coverage: float = CONFIDENCE) -> Optional[list]:
+    """The exact (Clopper–Pearson) interval for a pass rate: every rate under which ``successes`` of
+    ``trials`` is not in either tail beyond (1 − coverage)/2. Exact means it never runs short of its coverage
+    at any rate or any number of runs, which a normal approximation does at 0 or n of n, where repeated agent
+    runs usually land. None for no trials."""
+    if trials <= 0:
+        return None
+    half = (1 - coverage) / 2
+
+    def solve(f, rising: bool) -> float:
+        lo, hi = 0.0, 1.0
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            if (f(mid) < half) == rising:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2
+    lower = 0.0 if successes <= 0 else solve(lambda p: binomial_tail(successes, trials, p), True)
+    upper = 1.0 if successes >= trials else solve(lambda p: 1 - binomial_tail(successes + 1, trials, p), False)
+    return [round(lower, 4), round(upper, 4)]
+
+
+def fail_rate_at_most(runs: int, coverage: float = CONFIDENCE) -> Optional[float]:
+    """After ``runs`` passes in a row and no failure, the highest failure rate not ruled out at ``coverage``
+    (one-sided, exact): a rate f survives while (1 − f)^runs exceeds 1 − coverage. Three straight passes leave
+    0.63; it is the same for a pass rate after a run of failures."""
+    if runs <= 0:
+        return None
+    return round(1 - (1 - coverage) ** (1 / runs), 4)
+
+
+def runs_to_rule_out(rate: float, coverage: float = CONFIDENCE) -> Optional[int]:
+    """The straight passes it takes before a failure rate of ``rate`` is ruled out at ``coverage``
+    (one-sided, exact): 29 for 10%, 59 for 5%."""
+    if not 0 < rate < 1:
+        return None
+    return math.ceil(math.log(1 - coverage) / math.log(1 - rate) - 1e-12)
+
+
+def poisson_binomial(probabilities: Sequence[float]) -> list:
+    """The exact distribution of how many of several independent events happen, each with its own chance:
+    entry j is P(exactly j). Built one event at a time, so it is exact for any mix of chances."""
+    dist = [1.0]
+    for q in probabilities:
+        nxt = [0.0] * (len(dist) + 1)
+        for j, mass in enumerate(dist):
+            nxt[j] += mass * (1 - q)
+            nxt[j + 1] += mass * q
+        dist = nxt
+    return dist
+
+
+def central_range(dist: Sequence[float], coverage: float = 0.90) -> list:
+    """The narrowest-tailed integer range [lo, hi] of a count's distribution that leaves at most
+    (1 - coverage)/2 of the mass below lo and at most that above hi."""
+    tail = (1 - coverage) / 2
+    below, lo = 0.0, 0
+    while lo < len(dist) - 1 and below + dist[lo] <= tail + 1e-12:
+        below += dist[lo]
+        lo += 1
+    above, hi = 0.0, len(dist) - 1
+    while hi > lo and above + dist[hi] <= tail + 1e-12:
+        above += dist[hi]
+        hi -= 1
+    return [lo, hi]
+
+
+#: above this many values the sign-flip test is drawn at random (seeded) instead of enumerated
+SIGN_FLIP_EXACT_MAX = 16
+SIGN_FLIP_DRAWS = 20000
+
+
+def sign_flip_p(values: Sequence[float], seed: int = BOOTSTRAP_SEED) -> Optional[float]:
+    """Two-sided p of the sign-flip test that ``values`` are centred on 0: the share of the 2^n ways of
+    flipping their signs whose sum is at least as far from 0 as the observed sum. It needs only that each
+    value is as likely to be positive as negative under the null, so it holds for any spread and any number
+    of values, and never runs over its level; with few values it cannot go low (6 values: no p below 1/32).
+    Exact up to :data:`SIGN_FLIP_EXACT_MAX` values; past that, a seeded draw of :data:`SIGN_FLIP_DRAWS`
+    flips, counted as (1 + hits) / (1 + draws). None for no values."""
+    vals = [float(v) for v in values]
+    n = len(vals)
+    if not n:
+        return None
+    observed = abs(sum(vals)) - 1e-12 * (1 + sum(abs(v) for v in vals))
+    if n <= SIGN_FLIP_EXACT_MAX:
+        hits = 0
+        for mask in range(1 << n):
+            total = 0.0
+            for i, v in enumerate(vals):
+                total += -v if mask >> i & 1 else v
+            hits += abs(total) >= observed
+        return hits / (1 << n)
+    rng = random.Random(seed)
+    hits = sum(abs(sum(v if rng.random() < 0.5 else -v for v in vals)) >= observed for _ in range(SIGN_FLIP_DRAWS))
+    return (1 + hits) / (1 + SIGN_FLIP_DRAWS)
 
 
 def binomial_tail(k: int, n: int, p: float) -> float:
@@ -247,7 +346,9 @@ def paired_inference(pairs: list, labels: tuple = ("A", "B"),
     indicator (bool) or a success rate in [0, 1] (multi-run tasks);
     pairs with a missing side are dropped and counted.  Reports the
     mean difference (A minus B) with its paired standard error and 95%
-    interval, the discordant-pair counts, the exact sign-test p-value,
+    interval (t on n − 1 degrees of freedom, since a paired suite is often
+    ten or twenty tasks, and kept within [−1, 1]), the discordant-pair
+    counts, the exact sign-test p-value,
     and a verdict that refuses to distinguish below ``min_pairs`` —
     with the denominator stated either way.
     """
@@ -262,10 +363,12 @@ def paired_inference(pairs: list, labels: tuple = ("A", "B"),
     mean = (sum(diffs) / n) if n else None
     se = None
     ci = None
+    critical = None
     if n >= 2:
         sd = _sample_stdev(diffs)
         se = sd / math.sqrt(n)
-        ci = [round(mean - _Z * se, 4), round(mean + _Z * se, 4)]
+        critical = t_critical(n - 1)
+        ci = [round(max(-1.0, mean - critical * se), 4), round(min(1.0, mean + critical * se), 4)]
     p = sign_test(a_wins, b_wins)
     if n < min_pairs:
         verdict = (f"not distinguishable: only {n} paired task(s) "
@@ -282,19 +385,61 @@ def paired_inference(pairs: list, labels: tuple = ("A", "B"),
         "discordant": a_wins + b_wins,
         "diff": round(mean, 4) if mean is not None else None,
         "se": round(se, 4) if se is not None else None,
-        "ci95": ci, "sign_test_p": p, "verdict": verdict,
-        "method": "paired difference with paired SE; exact two-sided sign "
-                  "test on discordant pairs (McNemar)",
+        "ci95": ci, "critical": round(critical, 4) if critical is not None else None,
+        "sign_test_p": p, "verdict": verdict,
+        "method": "paired difference with paired SE and t on n − 1; exact "
+                  "two-sided sign test on discordant pairs (McNemar)",
     }
+
+
+@lru_cache(maxsize=None)
+def t_critical(df: float, coverage: float = CONFIDENCE) -> float:
+    """Two-sided Student t critical value on ``df`` degrees of freedom (a
+    fractional df, as a Satterthwaite approximation gives, is allowed), by
+    bisection on the CDF (Simpson's rule over the density); stdlib only."""
+    if df < 1:
+        raise ValueError("t needs at least one degree of freedom")
+    target = 1 - (1 - coverage) / 2
+    c = math.exp(math.lgamma((df + 1) / 2) - math.lgamma(df / 2)) / math.sqrt(df * math.pi)
+
+    def pdf(x: float) -> float:
+        return c * (1 + x * x / df) ** (-(df + 1) / 2)
+
+    def cdf(x: float, steps: int = 2000) -> float:
+        h = x / steps
+        inner = sum((4 if i % 2 else 2) * pdf(i * h) for i in range(1, steps))
+        return 0.5 + (pdf(0.0) + pdf(x) + inner) * h / 3
+
+    lo, hi = 0.0, 1000.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if cdf(mid) < target else (lo, mid)
+    return (lo + hi) / 2
+
+
+#: below this many clusters the cluster-robust interval runs short of its
+#: nominal coverage even with the t critical value: Cameron and Miller's
+#: practitioner's guide puts "few" below 20 to 50, and in simulation it held
+#: 0.87 at 5 clusters, 0.92 at 10, 0.94 at 19 (labelled synthetic; docs/CHANGELOG.md)
+FEW_CLUSTERS = 20
 
 
 def clustered_se(values: list, clusters: list) -> dict:
     """Cluster-robust standard error of a mean.  ``values`` are per-unit
     observations (e.g. 1/0 correct), ``clusters`` the cluster key of each
     unit (e.g. the scenario family).  Reports the naive SE, the
-    cluster-robust SE (the sandwich estimator for a mean, with the usual
-    G/(G−1) small-sample factor) and their ratio — how much the naive
-    error bar understated the uncertainty."""
+    cluster-robust SE and their ratio — how much the naive error bar
+    understated the uncertainty.
+
+    The clustered SE is the CR2 sandwich (Bell and McCaffrey): each
+    cluster's residual sum is scaled by 1/sqrt(1 − n_g/n), its leverage in
+    a mean.  The interval uses the t critical value on the Bell–McCaffrey
+    (Satterthwaite) degrees of freedom, ``df``.  With equal cluster sizes
+    both reduce exactly to the CR1 sandwich (factor G/(G−1)) on G−1
+    degrees of freedom.  Unequal sizes leave fewer effective clusters
+    than G, and the interval widens to say so.  With one cluster there is
+    nothing to estimate the between-cluster spread from: the clustered
+    figures are None, not 0."""
     n = len(values)
     if n < 2 or len(clusters) != n:
         return {"n": n, "clusters": len(set(clusters)), "mean": None,
@@ -306,21 +451,49 @@ def clustered_se(values: list, clusters: list) -> dict:
     for v, c in zip(values, clusters):
         groups.setdefault(c, []).append(v - mean)
     g = len(groups)
-    sandwich = sum(sum(resid) ** 2 for resid in groups.values()) / (n * n)
-    factor = g / (g - 1) if g > 1 else 1.0
-    clustered = math.sqrt(sandwich * factor)
-    return {
-        "n": n, "clusters": g, "mean": round(mean, 4),
-        "naive_se": round(naive, 6), "clustered_se": round(clustered, 6),
-        "ratio": round(clustered / naive, 3) if naive > 0 else None,
-        "ci95_naive": [round(mean - _Z * naive, 4), round(mean + _Z * naive, 4)],
-        "ci95_clustered": [round(mean - _Z * clustered, 4),
-                           round(mean + _Z * clustered, 4)],
-        "note": ("one cluster: clustered SE is undefined, naive shown"
-                 if g < 2 else
-                 "clusters share a source; the clustered interval is the "
-                 "honest one"),
-    }
+    # a mean cannot leave the range of its data: an accuracy's interval stops at 1
+    floor, ceiling = min(values), max(values)
+
+    def _within(lo: float, hi: float) -> list:
+        return [round(max(floor, lo), 4), round(min(ceiling, hi), 4)]
+    out = {"n": n, "clusters": g, "mean": round(mean, 4), "naive_se": round(naive, 6),
+           "ci95_naive": _within(mean - _Z * naive, mean + _Z * naive)}
+    if g < 2:
+        return dict(out, clustered_se=None, ratio=None, ci95_clustered=None, critical=None,
+                    note="one cluster: the spread between clusters cannot be estimated, so "
+                         "there is no clustered error bar; the naive one is shown")
+    sizes = [len(resid) for resid in groups.values()]
+    sums = [sum(resid) for resid in groups.values()]
+    clustered, df = _cr2(sums, sizes, n)
+    t = t_critical(df)
+    note = ("clusters share a source; the clustered interval is the honest one"
+            if g >= FEW_CLUSTERS else
+            f"only {g} clusters: the clustered interval runs short of 95% this few "
+            "(in simulation 0.86 at 5 equal clusters, 0.94 at 19), so read it as a "
+            "lower bound on the uncertainty")
+    return dict(out, clustered_se=round(clustered, 6),
+                ratio=round(clustered / naive, 3) if naive > 0 else None,
+                ci95_clustered=_within(mean - t * clustered, mean + t * clustered),
+                critical=round(t, 4), df=df, note=note)
+
+
+def _cr2(sums: list, sizes: list, n: int) -> tuple:
+    """The CR2 standard error of a mean from each cluster's residual sum and
+    size, and its Bell–McCaffrey degrees of freedom, rounded to 2 places.
+    Residual sums under iid errors have covariance proportional to
+    M = diag(n_g) − n_g n_h / n.  The variance is a weighted sum of squares,
+    with W = diag(1 / (n²(1 − n_g/n))), so its Satterthwaite df is
+    tr(WM)² / tr((WM)²)."""
+    w = [1.0 / (n * n * (1 - m / n)) for m in sizes]
+    se = math.sqrt(sum(wg * s * s for wg, s in zip(w, sums)))
+    # WM = W·diag(n_g) − (W·n)(n)ᵀ/n; its traces need only sums over clusters
+    a = [wg * m for wg, m in zip(w, sizes)]           # diagonal part, w_g n_g
+    tr = sum(a) - sum(ag * m for ag, m in zip(a, sizes)) / n
+    # tr((D − u vᵀ)²) = tr(D²) − 2 vᵀ D u + (vᵀ u)², with D = diag(a), u = a/n, v = n_g
+    vu = sum(m * ag for m, ag in zip(sizes, a)) / n
+    vdu = sum(m * ag * ag for m, ag in zip(sizes, a)) / n
+    tr2 = sum(ag * ag for ag in a) - 2 * vdu + vu * vu
+    return se, round(max(1.0, tr * tr / tr2), 2) if tr2 > 0 else float(len(sizes) - 1)
 
 
 @_sections.register("aggregate", "paired_inference", requires=("diagnosis_consolidated",))

@@ -10,14 +10,23 @@ step-type sequences).
 
 from __future__ import annotations
 
+import itertools
+import math
+import random
 from typing import Optional
 
-from .report import compare
+from .align import align
+from .divergence import find_divergences
 from .trace import Trajectory
 from . import sections as _sections
 
 SYSTEMATIC_THRESHOLD = 0.8
 VARIABLE_THRESHOLD = 0.3
+#: splits of a task's runs enumerated exactly before a seeded sample is drawn instead
+RELABEL_SPLITS = 2000
+RELABEL_SEED = 0
+#: a relabelled rate at or above the observed this seldom counts as beyond chance
+RELABEL_ALPHA = 0.05
 
 
 def _cv(values: list[float]) -> float:
@@ -84,6 +93,83 @@ def _side_stats(runs: list[Trajectory]) -> dict:
     }
 
 
+def _first_divergence(ra: Trajectory, rb: Trajectory) -> Optional[tuple[str, int]]:
+    """The kind and step of the first divergence, as the pair report finds it.
+
+    Only the alignment and its divergences are built: the rest of a pair
+    report (token diffs of every tool call) is what makes ``compare`` slow,
+    and nothing here reads it.
+    """
+    divergences = find_divergences(ra, rb, align(ra, rb))
+    if not divergences:
+        return None
+    first = divergences[0]
+    idx = first["a_index"] if first["a_index"] is not None else first["b_index"]
+    return first["kind"], idx if idx is not None else -1
+
+
+def _rate_of(firsts: list) -> tuple[float, Optional[str], Optional[int]]:
+    """The between-arm rate over first divergences (None where a pair did not part)."""
+    observations = [f for f in firsts if f]
+    if not observations:
+        return 0.0, None, None
+    kind_counts: dict[str, int] = {}
+    for kind, _ in observations:
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+    modal_kind = min(kind_counts, key=lambda k: (-kind_counts[k], k))
+    idx_counts: dict[int, int] = {}
+    for kind, idx in observations:
+        if kind == modal_kind:
+            idx_counts[idx] = idx_counts.get(idx, 0) + 1
+    modal_idx = min(idx_counts, key=lambda i: (-idx_counts[i], i))
+    matching = sum(1 for kind, idx in observations if kind == modal_kind and abs(idx - modal_idx) <= 1)
+    return round(matching / len(firsts), 4), modal_kind, modal_idx
+
+
+def _relabelled(runs_a: list[Trajectory], runs_b: list[Trajectory], observed: float) -> dict:
+    """How often the arm labels, dealt at random, part the runs this consistently.
+
+    If the arms did not differ, the task's runs would be exchangeable: any
+    ``len(runs_a)`` of them could have been arm A. So the between-arm rate is
+    computed for every such split (exactly, up to :data:`RELABEL_SPLITS`;
+    beyond that a seeded sample), and ``p`` is the share at or above the
+    observed rate, the observed split included. ``least_p`` is the smallest
+    ``p`` these run counts could ever give. With equal sides a split and its
+    mirror (A and B swapped) part the runs alike, so it is 2 over the number
+    of splits: 1/3 at 2 runs a side, 1/10 at 3 and 1/35 at 4. Below 4 runs a
+    side no divergence pattern can pass for a difference between the arms
+    (``can_show`` false).
+    """
+    runs = list(runs_a) + list(runs_b)
+    n, k = len(runs), len(runs_a)
+    total = math.comb(n, k)
+    if k < 1 or n - k < 1 or total < 2:
+        return {"splits": total, "p": None, "least_p": None, "can_show": False, "beyond_chance": None,
+                "reason": "needs runs on both sides"}
+    first = {}
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                first[i, j] = _first_divergence(runs[i], runs[j])
+
+    def rate(group: tuple) -> float:
+        inside = set(group)
+        return _rate_of([first[i, j] for i in group for j in range(n) if j not in inside])[0]
+
+    if total <= RELABEL_SPLITS:
+        splits = list(itertools.combinations(range(n), k))
+        basis = "every split of the task's runs"
+    else:
+        rng = random.Random(RELABEL_SEED)
+        splits = [tuple(range(k))] + [tuple(sorted(rng.sample(range(n), k))) for _ in range(RELABEL_SPLITS - 1)]
+        basis = f"{RELABEL_SPLITS} seeded splits of the task's runs, the observed one first"
+    at_least = sum(1 for g in splits if rate(g) >= observed - 1e-9)
+    p = round(at_least / len(splits), 4)
+    least = round((2 if 2 * k == n else 1) / total, 4)
+    return {"splits": len(splits), "p": p, "least_p": least, "can_show": least <= RELABEL_ALPHA,
+            "beyond_chance": p <= RELABEL_ALPHA, "basis": basis, "reason": None}
+
+
 def _reproducibility(runs_a: list[Trajectory], runs_b: list[Trajectory]) -> dict:
     """Divergence reproducibility over all a-run x b-run comparisons.
 
@@ -96,38 +182,19 @@ def _reproducibility(runs_a: list[Trajectory], runs_b: list[Trajectory]) -> dict
     for ra in runs_a:
         for rb in runs_b:
             n_pairs += 1
-            divergences = compare(ra, rb)["divergences"]
-            if not divergences:
-                continue
-            first = divergences[0]
-            idx = first["a_index"] if first["a_index"] is not None else first["b_index"]
-            observations.append((first["kind"], idx if idx is not None else -1))
+            first = _first_divergence(ra, rb)
+            if first:
+                observations.append(first)
     if not observations:
-        return {"rate": 0.0, "kind": None, "verdict": "none"}
-
-    kind_counts: dict[str, int] = {}
-    for kind, _ in observations:
-        kind_counts[kind] = kind_counts.get(kind, 0) + 1
-    modal_kind = min(kind_counts, key=lambda k: (-kind_counts[k], k))
-    idx_counts: dict[int, int] = {}
-    for kind, idx in observations:
-        if kind == modal_kind:
-            idx_counts[idx] = idx_counts.get(idx, 0) + 1
-    modal_idx = min(idx_counts, key=lambda i: (-idx_counts[i], i))
-
-    matching = sum(
-        1
-        for kind, idx in observations
-        if kind == modal_kind and abs(idx - modal_idx) <= 1
-    )
-    rate = round(matching / n_pairs, 4)
+        return {"rate": 0.0, "kind": None, "verdict": "none", "step": None}
+    rate, modal_kind, modal_idx = _rate_of(observations + [None] * (n_pairs - len(observations)))
     if rate >= SYSTEMATIC_THRESHOLD:
         verdict = "systematic"
     elif rate >= VARIABLE_THRESHOLD:
         verdict = "variable"
     else:
         verdict = "none"
-    return {"rate": rate, "kind": modal_kind, "verdict": verdict}
+    return {"rate": rate, "kind": modal_kind, "verdict": verdict, "step": modal_idx}
 
 
 def stability_analysis(runs_by_task: dict[str, dict[str, list[Trajectory]]]) -> dict:
@@ -148,6 +215,8 @@ def stability_analysis(runs_by_task: dict[str, dict[str, list[Trajectory]]]) -> 
     medoids: dict[str, dict[str, str]] = {}
     runs_per_agent = {names["a"]: 0, names["b"]: 0}
     systematic_count = 0
+    within_too = 0
+    too_few = 0
     stable_fail = {"a": 0, "b": 0}
 
     for tid in task_ids:
@@ -158,6 +227,8 @@ def stability_analysis(runs_by_task: dict[str, dict[str, list[Trajectory]]]) -> 
         stats_a = _side_stats(runs_a)
         stats_b = _side_stats(runs_b)
         repro = _reproducibility(runs_a, runs_b)
+        if repro["kind"] is not None:
+            repro["relabelled"] = _relabelled(runs_a, runs_b, repro["rate"])
         per_task.append({"task": tid, "a": stats_a, "b": stats_b,
                          "divergence_reproducibility": repro})
         for side, stats in (("a", stats_a), ("b", stats_b)):
@@ -170,6 +241,11 @@ def stability_analysis(runs_by_task: dict[str, dict[str, list[Trajectory]]]) -> 
         runs_per_agent[names["b"]] = max(runs_per_agent[names["b"]], len(runs_b))
         if repro["verdict"] == "systematic":
             systematic_count += 1
+            label = repro.get("relabelled") or {}
+            if not label.get("beyond_chance"):
+                within_too += 1
+                if not label.get("can_show"):
+                    too_few += 1
 
     n_tasks = len(task_ids)
     bits = []
@@ -184,13 +260,25 @@ def stability_analysis(runs_by_task: dict[str, dict[str, list[Trajectory]]]) -> 
         if not clauses:
             clauses.append("is stable on every task")
         bits.append(f"{name} " + " and ".join(clauses))
-    narrative = (
-        f"{'; '.join(bits)}. Divergences are systematic on {systematic_count} "
-        f"of {n_tasks} task(s), so the observed gaps are behavioral, not noise."
-        if systematic_count
-        else f"{'; '.join(bits)}. No task shows a systematically reproducible "
-        f"divergence pattern."
-    )
+    beyond = systematic_count - within_too
+    if not systematic_count:
+        tail = "No task shows a systematically reproducible divergence pattern."
+    elif not within_too:
+        tail = (f"Divergences are systematic on {systematic_count} of {n_tasks} task(s), and on each the arm "
+                f"labels dealt at random seldom part the runs so (p <= {RELABEL_ALPHA:g}), so the observed "
+                f"gaps are behavioral, not noise.")
+    else:
+        why = []
+        if too_few:
+            why.append(f"on {too_few} there are too few runs for any pattern to show (with equal sides, "
+                       f"4 runs each is the fewest that can)")
+        if within_too - too_few:
+            why.append(f"on {within_too - too_few} the arm labels dealt at random part the runs as "
+                       f"consistently (p > {RELABEL_ALPHA:g})")
+        tail = (f"Divergences are systematic on {systematic_count} of {n_tasks} task(s), but "
+                + "; ".join(why) + ", so those are no evidence that the arms differ"
+                + (f"; on {beyond} the pattern goes beyond chance." if beyond else "."))
+    narrative = f"{'; '.join(bits)}. {tail}"
 
     return {
         "runs_per_agent": runs_per_agent,
