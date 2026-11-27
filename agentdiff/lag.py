@@ -32,7 +32,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-__all__ = ["KINDS", "rebuild", "apply_edit", "termination_lag", "lag_over", "lag_says", "find_workspace", "resolve_check"]
+__all__ = ["KINDS", "test_counts", "rebuild", "apply_edit", "termination_lag", "lag_over", "lag_says", "find_workspace", "resolve_check"]
 
 #: the run directory the harness gives an agent: /tmp/agentdiff-<agent>-<id>/work
 _WORK = re.compile(r"^(.*?/agentdiff-[^/]+/work)/(.+)$")
@@ -119,7 +119,33 @@ def find_workspace(task: str, root: Path) -> List[Path]:
     return [c for c in cands if c.is_dir()]
 
 
-def _grade(files: Dict[str, str], check: str, timeout: float = 60) -> bool:
+_RAN = re.compile(r"^Ran (\d+) tests? in", re.M)
+_BAD = re.compile(r"(failures|errors)=(\d+)")
+_PYTEST = re.compile(r"(\d+) (passed|failed|errors?)\b")
+
+
+def test_counts(output: str) -> Optional[tuple]:
+    """``(passed, total)`` from a test run's own summary, the last one it printed: unittest's ``Ran N tests``
+    and its ``FAILED (failures=a, errors=b)``, or pytest's tally. None when it printed none (it did not get
+    as far as running tests)."""
+    runs = list(_RAN.finditer(output))
+    if runs:
+        last = runs[-1]
+        total = int(last.group(1))
+        tail = output[last.end():]
+        bad = sum(int(n) for _, n in _BAD.findall(tail.split("\nRan ")[0])) if "FAILED" in tail else 0
+        return max(0, total - bad), total
+    tally = {}
+    for n, kind in _PYTEST.findall(output):
+        tally[kind.rstrip("s")] = int(n)
+    if tally:
+        total = sum(tally.values())
+        return tally.get("passed", 0), total
+    return None
+
+
+def _grade(files: Dict[str, str], check: str, timeout: float = 60) -> tuple:
+    """``(passed the check, tests passed, tests run)``; the counts are None when the run printed none."""
     with tempfile.TemporaryDirectory() as tmp:
         for rel, text in files.items():
             p = Path(tmp) / rel
@@ -129,8 +155,9 @@ def _grade(files: Dict[str, str], check: str, timeout: float = 60) -> bool:
         try:
             r = subprocess.run(check, shell=True, cwd=tmp, capture_output=True, timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
-            return False
-        return r.returncode == 0
+            return False, None, None
+        counts = test_counts((r.stdout + b"\n" + r.stderr).decode("utf-8", "replace"))
+        return r.returncode == 0, *(counts or (None, None))
 
 
 #: what a step after the fix was: a check (a test run, by its command or by what it printed), an edit, a read, any
@@ -138,22 +165,26 @@ def _grade(files: Dict[str, str], check: str, timeout: float = 60) -> bool:
 KINDS = ("check", "edit", "read", "other tool", "text")
 
 
-def _kinds(steps) -> Dict[str, int]:
+def _kind(s) -> str:
+    """One step's kind, from :data:`KINDS`."""
     from .gittasks import _tool_input
     from .guard import EDIT_TOOLS, is_check_command, runner_verdict
+    if s.type != "tool_call":
+        return "text"
+    if s.name in EDIT_TOOLS:
+        return "edit"
+    if s.name == "Bash" and (is_check_command(str(_tool_input(s.input).get("command") or ""))
+                             or runner_verdict(str(s.output or "")) is not None):
+        return "check"
+    if s.name in ("Read", "Grep", "Glob", "LS"):
+        return "read"
+    return "other tool"
+
+
+def _kinds(steps) -> Dict[str, int]:
     out = dict.fromkeys(KINDS, 0)
     for s in steps:
-        if s.type != "tool_call":
-            out["text"] += 1
-        elif s.name in EDIT_TOOLS:
-            out["edit"] += 1
-        elif s.name == "Bash" and (is_check_command(str(_tool_input(s.input).get("command") or ""))
-                                   or runner_verdict(str(s.output or "")) is not None):
-            out["check"] += 1
-        elif s.name in ("Read", "Grep", "Glob", "LS"):
-            out["read"] += 1
-        else:
-            out["other tool"] += 1
+        out[_kind(s)] += 1
     return out
 
 
@@ -180,12 +211,19 @@ def termination_lag(traj, record: dict, root: Path) -> dict:
         return dict(out, rebuilt=False, why="; ".join(tried) or "no workspace for this task here")
     if not rb["states"]:
         return dict(out, rebuilt=True, edits=0, why="no edit to the project")
-    graded, cache = [], {}
+    graded, cache, tests = [], {}, []
+    base = _grade(_read_tree(ws), check)
     for st in rb["states"]:
         key = _sha(json.dumps(st["files"], sort_keys=True))
         if key not in cache:
             cache[key] = _grade(st["files"], check)
-        graded.append((st["step"], cache[key]))
+        ok, n_pass, n_run = cache[key]
+        graded.append((st["step"], ok))
+        tests.append([st["step"], n_pass, n_run])
+    # tests the task has: the most any state of this run ran (a state that cannot import runs fewer)
+    total = max([t[2] for t in tests if t[2]] + [base[2] or 0]) or None
+    progress = [[t[0], round(t[1] / total, 4) if total and t[1] is not None else 0.0] for t in tests]
+    broke = sum(1 for a, b in zip(tests, tests[1:]) if a[1] is not None and b[1] is not None and b[1] < a[1])
     final_ok = graded[-1][1]
     if final_ok != bool((record.get("check") or {}).get("passed")):
         return dict(out, rebuilt=False, why="the rebuilt final code grades differently from the run's own grade")
@@ -195,6 +233,8 @@ def termination_lag(traj, record: dict, root: Path) -> dict:
     lag = (len(traj.steps) - 1 - first) if first is not None else None
     after = _kinds([st for st in traj.steps if first is not None and st.index > first])
     return dict(out, rebuilt=True, edits=len(graded), graded=[ok for _, ok in graded], first_correct=first, after=after,
+                tests=tests, tests_total=total, start=round(base[1] / total, 4) if total and base[1] else 0.0,
+                progress=progress, broke=broke, path=[_kind(st) for st in traj.steps],
                 first_edit_correct=graded[0][1], final_correct=final_ok,
                 undone=first is not None and not final_ok, lag=lag,
                 lag_share=round(lag / len(traj.steps), 4) if lag is not None else None,

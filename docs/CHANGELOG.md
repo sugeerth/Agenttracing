@@ -5,6 +5,24 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## Termination lag, test by test, and drawn (`agentdiff lag --html`)
+
+Each grade in `agentdiff lag` now also reads the test runner's own
+summary (`lag.test_counts`). That gives the share of the task's held-out
+tests passing after every edit, a progress curve per run measured from
+the code itself, and `broke`: a test that passed and then failed.
+`lagreport.lag_html` and `--html` draw two pictures, with no script:
+- every passing run as a row of its steps, split at the edit that made
+  the code pass, with the steps after it coloured by kind;
+- each task's runs as progress curves.
+
+Recorded, on the 66 rebuilt real runs:
+- 83 edits were graded. 66 raised the tests passing, 17 left them as
+  they were, and none lowered them.
+- 5 states were left part-way.
+- The failing runs stalled at 5 of 6 tests (`ranges` r2 and r3) and 0
+  of 4 (`semver` r1 and r2). None of them lost a fix.
+
 ## When each run's code first became correct (`agentdiff lag`)
 
 `lag.termination_lag`, `lag.lag_over` and the `lag` command. Each run is

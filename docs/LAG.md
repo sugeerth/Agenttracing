@@ -1,8 +1,9 @@
 # When the code first became correct
 
 ```bash
-agentdiff lag runs/          # each run rebuilt edit by edit, graded after every edit
-agentdiff lag runs/ --json   # every run, every grade
+agentdiff lag runs/                # each run rebuilt edit by edit, graded after every edit
+agentdiff lag runs/ --json         # every run, every grade, every test count
+agentdiff lag runs/ --html f.html  # every passing run before and after its fix, and each run's progress
 ```
 
 A trace records what an agent did. It does not record whether the code
@@ -63,3 +64,38 @@ after their code was right, and it showed them so. The other 28 never
 checked after that point, so nothing in their run showed them they were
 right. That is the
 pattern in `FINDINGS.md` §1.
+
+## Test by test: how far each run had got
+
+Each grade also reads the test runner's own summary: unittest's `Ran N
+tests` and `FAILED (failures=…, errors=…)`, or pytest's tally. That
+gives the share of the task's held-out tests passing after every edit,
+from the untouched workspace to the run's end. So each run has a true
+progress curve, not one the agent reports. On the same 66 runs:
+
+| | |
+|---|---|
+| edits graded | 83 |
+| that raised the tests passing | 66 |
+| that left them as they were | 17 |
+| that lowered them (broke a test that passed) | **0** |
+| states left part-way (some tests passing, not all) | 5 |
+| runs whose untouched workspace already passed some tests | 14, on 5 tasks |
+
+Most edits take a task from failing to every test passing at once. The
+failing runs stalled, and lost nothing:
+- **`ranges` r2 and r3:** 5 of 6 tests at the end, one short.
+- **`semver` r1 and r2:** 0 of 4 throughout.
+
+## The page
+
+`--html` writes the result as one page, with no script.
+- **Every passing run as a row of its steps.** The row is ink up to the
+  edit that made the code pass. After that, each step is coloured by
+  what it was: red for a check, grey for an edit, pale for a read or
+  other tool, and an outline for text. The rows are sorted by the share
+  of the run after the fix.
+- **Each task's runs as progress curves.** Each curve is the share of
+  tests passing, step by step. A run that passed is drawn in black, a
+  run that failed in red, and a red dot marks where a run first passed
+  every test.

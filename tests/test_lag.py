@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from agentdiff.lag import apply_edit, lag_over, rebuild, termination_lag  # noqa: E402
+from agentdiff.lag import apply_edit, lag_over, rebuild, termination_lag, test_counts  # noqa: E402
 from agentdiff.trace import Trajectory  # noqa: E402
 
 WRONG = "def f():\n    return 1\n"
@@ -64,6 +64,17 @@ class ApplyTest(unittest.TestCase):
         self.assertIn("does not exist", apply_edit(files, "o.py", "Edit", {"old_string": "x", "new_string": "y"}))
 
 
+class CountsTest(unittest.TestCase):
+    def test_a_runners_own_summary(self):
+        self.assertEqual(test_counts("..F\nRan 3 tests in 0.0s\n\nFAILED (failures=1)\n"), (2, 3))
+        self.assertEqual(test_counts("EF.\nRan 3 tests in 0.0s\n\nFAILED (failures=1, errors=1)\n"), (1, 3))
+        self.assertEqual(test_counts("Ran 6 tests in 0.1s\n\nOK\n"), (6, 6))
+        self.assertEqual(test_counts("==== 3 passed, 1 failed in 0.12s ===="), (3, 4))
+        self.assertIsNone(test_counts("Traceback (most recent call last):\nSyntaxError: invalid syntax"))
+        # two runs printed: the last one is the grade
+        self.assertEqual(test_counts("Ran 2 tests in 0s\n\nFAILED (errors=2)\nRan 4 tests in 0s\n\nOK"), (4, 4))
+
+
 class RunTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -86,6 +97,28 @@ class RunTest(unittest.TestCase):
         self.assertEqual((got["first_correct"], got["first_edit_correct"], got["undone"]), (2, False, False))
         self.assertEqual(got["lag"], 3, "steps 3, 4 and the answer came after the fix")
         self.assertEqual(got["after"]["check"], 1)
+        self.assertEqual(got["path"], ["read", "edit", "edit", "check", "text", "text"])
+        self.assertEqual(got["broke"], 0)
+
+    def test_progress_test_by_test(self):
+        ws = self.root / "demo/vendors/suite/t"
+        (ws / "test_m.py").write_text(
+            "import unittest, m\nclass T(unittest.TestCase):\n"
+            "    def test_a(self): self.assertEqual(m.a(), 1)\n"
+            "    def test_b(self): self.assertEqual(m.b(), 2)\n")
+        (ws / "m.py").write_text("def a():\n    return 0\ndef b():\n    return 0\n")
+        both = "def a():\n    return 1\ndef b():\n    return 2\n"
+        steps = [_edit(f"{WORK}/m.py", "    return 0\ndef b", "    return 1\ndef b"),
+                 _edit(f"{WORK}/m.py", "    return 0\n", "    return 2\n"),
+                 _edit(f"{WORK}/m.py", "return 1", "return 9")]
+        record = {"check": {"command": "python3 -m unittest -q", "passed": False},
+                  "diff": {"files": [{"path": "m.py", "status": "modified", "after_sha": hashlib.sha256(
+                      both.replace("return 1", "return 9").encode()).hexdigest()}]}}
+        got = termination_lag(_run("steps", False, steps), record, self.root)
+        self.assertEqual([t[1:] for t in got["tests"]], [[1, 2], [2, 2], [1, 2]])
+        self.assertEqual((got["start"], got["tests_total"]), (0.0, 2))
+        self.assertEqual([p[1] for p in got["progress"]], [0.5, 1.0, 0.5])
+        self.assertEqual((got["broke"], got["undone"]), (1, True), "the third edit broke a test that passed")
 
     def test_a_fix_that_was_lost(self):
         steps = [_write(f"{WORK}/m.py", RIGHT), _edit(f"{WORK}/m.py", "return 2", "return 3")]
@@ -113,6 +146,17 @@ class RecordedTest(unittest.TestCase):
         self.assertEqual(got["median_lag"], 3)
         self.assertEqual(got["excluded"], 12, "the scripted stand-in's runs")
         self.assertTrue(all("globmatch" in r["trace"] for r in got["set_aside"]))
+
+
+class PageTest(unittest.TestCase):
+    def test_the_page(self):
+        from agentdiff.lagreport import lag_html
+        got = lag_over([ROOT / "demo/vendors/live"], root=ROOT)
+        page = lag_html(got, sources=["demo/vendors/live"])
+        passing = sum(1 for r in got["per_run"] if r.get("edits") and r.get("final_correct"))
+        self.assertEqual(page.count('<div class="row"'), passing, "one row a passing run")
+        self.assertEqual(page.count('<div class="panel">'), len({r["task"] for r in got["per_run"] if r.get("edits")}))
+        self.assertNotIn("<script", page.lower())
 
 
 class CommandTest(unittest.TestCase):
