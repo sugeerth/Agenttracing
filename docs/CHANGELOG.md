@@ -5,6 +5,32 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## When each run's code first became correct (`agentdiff lag`)
+
+`lag.termination_lag`, `lag.lag_over` and the `lag` command. Each run is
+rebuilt from its task's workspace, edit by edit, as `Write`, `Edit` and
+`MultiEdit` applied them. After every edit the task's held-out check is
+run on a copy. That gives each run's first correct step, the steps and
+tokens after it, what those steps were, and whether a passing fix was
+lost.
+
+A rebuild counts only if its final files hash to the SHA-256 the run's
+record kept for each changed file. Anything else, such as a file changed
+from the shell, is set aside with the file named, and the final grade
+must match the run's own.
+
+Recorded, on 70 real runs with records:
+- **Rebuilt byte for byte:** 68.
+- **Graded:** 66.
+- **Correct after their first edit:** 54 of 62 passing runs.
+- **After the code first passed:** a median 3 steps, 50% of the run, 47%
+  of its tokens.
+- **Of the 283 steps after the fix:** 50 were checks.
+- **No check after the code was correct:** 28 of 62 passing runs.
+- **A fix had and lost:** 0 of 66 runs.
+
+`docs/LAG.md`.
+
 ## The ten findings, checked against your runs (`agentdiff findings`)
 
 `findings.check_findings`, `findings.findings_html`, and the `findings`

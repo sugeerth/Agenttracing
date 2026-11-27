@@ -4,6 +4,58 @@ What each research run read, what it took, and what it left and why.
 Newest first. A later run never takes an idea an entry here rejected
 unless something new changes the reason.
 
+## 2026-11-27
+
+**How it was read.** Through search extracts and secondary summaries.
+arxiv.org could not be reached.
+
+**Read:**
+- *Termination Lag: Coding Agents Solve Early but Stop Late* (arXiv
+  2611.14960). The authors replayed every distinct patch from runs of five
+  models, two agent frameworks and three SWE-bench sets, and graded each.
+  - 38–82% of successful runs were correct at their first source edit.
+  - Among solved tasks, the median lag after the first correct patch was
+    16 steps, 35% of the run.
+  - In 1–8% of cases, later work undid a correct patch.
+  - Verification was 48–63% of the steps after the first correct patch.
+- Repeated-run reliability: *A Hierarchical Statistical Framework for
+  Evaluating Agent Reliability* (arXiv 2611.19614; sampling variances
+  for unbiased pass@k and pass^k estimators), Thinkingbox (pass^20
+  beside pass@20), EVA-Bench, ReliabilityBench, and τ-bench again.
+- Behaviour across models: *Dissecting model behavior through agent
+  trajectories* (arXiv 2606.17454), *On the Behavioral Traits of LLM
+  Agents* (arXiv 2609.32776), and *When Agents Disagree With
+  Themselves*.
+- Stale guidance: *When Instruction Files Go Stale* (arXiv 2611.09802),
+  and a one-sentence fix for stale instruction files (arXiv
+  2610.30571).
+
+**Took: termination lag, measured on the real runs here**
+(`agentdiff lag`, `docs/LAG.md`). The paper's method needs every
+intermediate patch graded. Here the runs' recorded edits rebuild each
+intermediate workspace. The records' file hashes check that every
+rebuild ends where the run ended, and the task's own held-out check
+grades each state.
+
+Recorded, 70 real runs:
+- **Rebuilt byte for byte:** 68.
+- **Correct after their first edit:** 54 of 62 passing runs (87%,
+  above the paper's 38–82%; the tasks here are small).
+- **The lag:** a median 3 steps, 50% of the run and 47% of its tokens
+  (the paper: 35% of the run).
+- **What the steps after the fix were:** 50 of 283 were checks.
+- **Lost fixes:** none of 66 runs lost a fix it had.
+
+**Not taken, and why:**
+- **Variances for unbiased pass^k** (2611.19614). AgentDiff's pass^k
+  interval holds its own estimate (2026-10-28), and its tests are exact
+  over tasks.
+- **Model signatures from trajectories** (2606.17454, 2609.32776). They
+  are classifiers over many models' runs, and the recorded runs here
+  come from two.
+- **Stale instruction files.** That is a property of a project's guide,
+  not of its traces.
+
 ## 2026-11-26
 
 **How it was read.** The Flakebait repository's README and first report

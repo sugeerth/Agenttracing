@@ -99,7 +99,7 @@ agentdiff loop --tasks tasks.json --provider atlas=openai:gpt-4o \
 Every finding cites the step and field it rests on; abstention is an
 answer ("contested", "not estimable", "n=1; not a gain estimate");
 estimates never masquerade as measurements. [`SCHEMA.md`](SCHEMA.md) is
-the trace and report contract, [`docs/CHANGELOG.md`](docs/CHANGELOG.md) every section's origin, and [`docs/FINDINGS.md`](docs/FINDINGS.md) the ten things the runs showed; `agentdiff findings runs/` checks your own runs against them.
+the trace and report contract, [`docs/CHANGELOG.md`](docs/CHANGELOG.md) every section's origin, and [`docs/FINDINGS.md`](docs/FINDINGS.md) the ten things the runs showed; `agentdiff findings runs/` checks your own runs against them, and `agentdiff lag runs/` says when each run's code first passed ([`docs/LAG.md`](docs/LAG.md)).
 
 ## The eval that evolves with the agent
 
