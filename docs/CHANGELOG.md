@@ -8,7 +8,7 @@ numbers are the schema/report versions the sections were introduced in.
 ## Termination lag, test by test, and drawn (`agentdiff lag --html`)
 
 Each grade in `agentdiff lag` now also reads the test runner's own
-summary (`lag.test_counts`). That gives the share of the task's held-out
+summary (`lag.count_tests`). That gives the share of the task's held-out
 tests passing after every edit, a progress curve per run measured from
 the code itself, and `broke`: a test that passed and then failed.
 `lagreport.lag_html` and `--html` draw two pictures, with no script:

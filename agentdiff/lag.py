@@ -32,7 +32,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-__all__ = ["KINDS", "test_counts", "rebuild", "apply_edit", "termination_lag", "lag_over", "lag_says", "find_workspace", "resolve_check"]
+__all__ = ["KINDS", "count_tests", "rebuild", "apply_edit", "termination_lag", "lag_over", "lag_says", "find_workspace", "resolve_check"]
 
 #: the run directory the harness gives an agent: /tmp/agentdiff-<agent>-<id>/work
 _WORK = re.compile(r"^(.*?/agentdiff-[^/]+/work)/(.+)$")
@@ -124,7 +124,7 @@ _BAD = re.compile(r"(failures|errors)=(\d+)")
 _PYTEST = re.compile(r"(\d+) (passed|failed|errors?)\b")
 
 
-def test_counts(output: str) -> Optional[tuple]:
+def count_tests(output: str) -> Optional[tuple]:
     """``(passed, total)`` from a test run's own summary, the last one it printed: unittest's ``Ran N tests``
     and its ``FAILED (failures=a, errors=b)``, or pytest's tally. None when it printed none (it did not get
     as far as running tests)."""
@@ -156,7 +156,7 @@ def _grade(files: Dict[str, str], check: str, timeout: float = 60) -> tuple:
             r = subprocess.run(check, shell=True, cwd=tmp, capture_output=True, timeout=timeout, env=env)
         except subprocess.TimeoutExpired:
             return False, None, None
-        counts = test_counts((r.stdout + b"\n" + r.stderr).decode("utf-8", "replace"))
+        counts = count_tests((r.stdout + b"\n" + r.stderr).decode("utf-8", "replace"))
         return r.returncode == 0, *(counts or (None, None))
 
 

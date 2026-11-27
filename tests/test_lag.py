@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from agentdiff.lag import apply_edit, lag_over, rebuild, termination_lag, test_counts  # noqa: E402
+from agentdiff.lag import apply_edit, lag_over, rebuild, termination_lag, count_tests  # noqa: E402
 from agentdiff.trace import Trajectory  # noqa: E402
 
 WRONG = "def f():\n    return 1\n"
@@ -66,13 +66,13 @@ class ApplyTest(unittest.TestCase):
 
 class CountsTest(unittest.TestCase):
     def test_a_runners_own_summary(self):
-        self.assertEqual(test_counts("..F\nRan 3 tests in 0.0s\n\nFAILED (failures=1)\n"), (2, 3))
-        self.assertEqual(test_counts("EF.\nRan 3 tests in 0.0s\n\nFAILED (failures=1, errors=1)\n"), (1, 3))
-        self.assertEqual(test_counts("Ran 6 tests in 0.1s\n\nOK\n"), (6, 6))
-        self.assertEqual(test_counts("==== 3 passed, 1 failed in 0.12s ===="), (3, 4))
-        self.assertIsNone(test_counts("Traceback (most recent call last):\nSyntaxError: invalid syntax"))
+        self.assertEqual(count_tests("..F\nRan 3 tests in 0.0s\n\nFAILED (failures=1)\n"), (2, 3))
+        self.assertEqual(count_tests("EF.\nRan 3 tests in 0.0s\n\nFAILED (failures=1, errors=1)\n"), (1, 3))
+        self.assertEqual(count_tests("Ran 6 tests in 0.1s\n\nOK\n"), (6, 6))
+        self.assertEqual(count_tests("==== 3 passed, 1 failed in 0.12s ===="), (3, 4))
+        self.assertIsNone(count_tests("Traceback (most recent call last):\nSyntaxError: invalid syntax"))
         # two runs printed: the last one is the grade
-        self.assertEqual(test_counts("Ran 2 tests in 0s\n\nFAILED (errors=2)\nRan 4 tests in 0s\n\nOK"), (4, 4))
+        self.assertEqual(count_tests("Ran 2 tests in 0s\n\nFAILED (errors=2)\nRan 4 tests in 0s\n\nOK"), (4, 4))
 
 
 class RunTest(unittest.TestCase):
