@@ -7,6 +7,20 @@ agent runs kept in this repository. *Synthetic* means seeded simulations,
 used where only a known truth could score the method. The full account
 of how each was measured is in `RESEARCH_LOG.md` and `CHANGELOG.md`.
 
+To check your own runs against all ten:
+
+```bash
+agentdiff findings runs/                    # each finding: applies here, clear, or cannot be told
+agentdiff findings runs/ --html check.html  # the same as a page
+```
+
+It reads every trace and self-evolve record under the folders given. For
+each finding it gives your numbers, from the same functions that
+measured it here, and what to do. When a finding cannot be told from
+your runs, it says so. On the runs recorded in this repository, 7 of the
+10 apply, 2 check clear, and 1 cannot be told (the grader is not in the
+traces).
+
 ## 1. Checking after the last edit goes with passing (recorded)
 
 Of 100 real runs that edited code:

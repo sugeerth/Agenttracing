@@ -5,6 +5,47 @@ section below was written when its feature shipped and is kept verbatim,
 so a field's meaning can be read next to the reason it exists. Version
 numbers are the schema/report versions the sections were introduced in.
 
+## The ten findings, checked against your runs (`agentdiff findings`)
+
+`findings.check_findings`, `findings.findings_html`, and the `findings`
+command. Each finding in `docs/FINDINGS.md` becomes a question a set of
+runs can answer, from the functions that measured it:
+- **unchecked finishes:** the guard replay, with a one-sided Fisher exact
+  test;
+- **kept changes never re-run, and kept on chance:** the self-evolve
+  records;
+- **unbroken streaks, runs or tasks, where runs part:** the reliability
+  reading;
+- **thin arms:** under 4 runs a side;
+- **a git repository found above the run:** the from-git leak check;
+- **paired cost:** the cost ratio.
+
+Each finding reads `applies`, `clear` or `cannot tell`, with the
+numbers. The grader's strength cannot be read from traces, and the check
+says so.
+
+Arms are the agent's name, with the folder added when one name ran from
+several folders. Two experiments that both keep a `g0-h0/traces` folder
+are not merged.
+
+`--html` writes it as one page with no script. A board of the ten
+findings is coloured by status, then each finding is given with your
+numbers and what to do.
+
+On the recorded runs here (106 runs, 13 arms, 3 self-evolve records):
+- **Applies (7):**
+  - 10 of 38 unchecked finishes failed against 3 of 62 checked
+    (p = 0.003);
+  - 1 of 2 kept changes was never re-run;
+  - 2 of 2 were kept on tests a change that did nothing could pass;
+  - the weakest streak still allows 95% the other way;
+  - more runs buy 0% of what new tasks would on the A/A suite;
+  - runs part at a median step 2;
+  - all 15 tasks two arms share have under 4 runs a side.
+- **Clear (2):** no git repository found by 13 runs that ran git; a cost
+  ratio of ×0.95, not shown by the tasks.
+- **Cannot tell (1):** the grader.
+
 ## The guard replay as a page, and every rule an operator could choose
 
 `guardreport.replay_html`, `guard.replay_variants`, and `--html FILE` on
